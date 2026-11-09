@@ -33,7 +33,7 @@ def people_list(country: str | None) -> list[str]:
     return fac + [f"{n} — -" for n in pool if n not in known]
 
 
-def _plot(fig: go.Figure, height: int = 420):
+def _plot(fig: go.Figure, height: int = 420, key: str | None = None):
     multi = len(fig.data) > 1
     fig.update_layout(
         height=height,
@@ -45,7 +45,7 @@ def _plot(fig: go.Figure, height: int = 420):
     )
     fig.update_xaxes(showgrid=False)
     fig.update_yaxes(gridcolor="rgba(128,128,128,0.15)", zeroline=False)
-    st.plotly_chart(fig, width="stretch")
+    st.plotly_chart(fig, width="stretch", key=key)
 
 
 # ───────────────────────── sidebar (global filters) ─────────────────────────
@@ -67,6 +67,52 @@ with st.sidebar:
 
 country = None if region == "world" else region
 F = metrics.Filter(start=yr[0], end=yr[1], areas=sel_areas, next_tier=next_tier, country=country, venues=sel_venues)
+
+def render_compare(names: list[str], kp: str, flt: metrics.Filter | None = None) -> None:
+    """Side-by-side comparison of up to MAX_COMPARE people (used by the search and compare tabs)."""
+    flt = flt or F
+    color = {n: SERIES[i] for i, n in enumerate(names)}
+    s = metrics.person_series(con(), names, flt)
+    ages = con().execute(
+        "SELECT person, phd_year_eff, age_source FROM person_age WHERE person IN (SELECT unnest(?))", [names]
+    ).df().set_index("person")
+    info = pd.DataFrame({
+        "name": names,
+        "학문적 나이": [THIS_YEAR - ages.phd_year_eff.get(n) if n in ages.index and pd.notna(ages.phd_year_eff.get(n)) else None for n in names],
+        "나이 출처": [ages.age_source.get(n) if n in ages.index else None for n in names],
+        f"논문 {yr[0]}–{yr[1]}": [int(s[s["name"] == n].pubs.sum()) for n in names],
+    })
+    ui.people_table(ui.add_age(info, after="학문적 나이"), f"{kp}_info", flt)
+
+    piv = s.pivot_table(index="area", columns="name", values="pubs", aggfunc="sum").fillna(0)
+    piv = piv.loc[piv.sum(axis=1).sort_values().index]
+    fig = go.Figure()
+    for n in names:
+        if n in piv:
+            fig.add_bar(y=piv.index, x=piv[n], name=n, orientation="h",
+                        marker=dict(color=color[n], cornerradius=4),
+                        hovertemplate=f"{n}<br>%{{y}}: %{{x}}편<extra></extra>")
+    fig.update_layout(barmode="group", bargap=0.25, bargroupgap=0.08,
+                      title=f"분야별 논문 수 ({yr[0]}–{yr[1]})")
+    _plot(fig, height=max(300, 22 * len(piv) * max(1, len(names)) // 2 + 120), key=f"{kp}_area")
+
+    full = metrics.person_series(con(), names, metrics.Filter(start=1970, end=THIS_YEAR, areas=flt.areas,
+                                                               next_tier=flt.next_tier, venues=flt.venues))
+    fig = go.Figure()
+    for n in names:
+        d = full[full["name"] == n].groupby("year").pubs.sum().sort_index().cumsum()
+        if d.empty:
+            continue
+        base = ages.phd_year_eff.get(n) if n in ages.index else None
+        x = d.index - base if base is not None and pd.notna(base) else d.index
+        fig.add_scatter(x=x, y=d.values, name=n, mode="lines+markers",
+                        line=dict(color=color[n], width=2), marker=dict(size=8),
+                        hovertemplate=f"{n}<br>PhD 후 %{{x}}년: 누적 %{{y:.0f}}편<extra></extra>")
+    fig.update_layout(title="누적 논문 수 — PhD 취득 연도 기준 정렬 (x=PhD 후 연차, 추정 포함)",
+                      hovermode="x unified")
+    fig.update_xaxes(title="PhD 후 연차", zeroline=True, zerolinecolor="rgba(128,128,128,0.4)")
+    _plot(fig, height=380, key=f"{kp}_cum")
+
 
 tab_school, tab_search, tab_cmp, tab_status = st.tabs(["학교 비교", "교수·후보자 검색", "교수 비교", "데이터 현황"])
 
@@ -218,54 +264,20 @@ with tab_search:
         st.caption("명단 외 인물의 소속은 본인 최근 논문의 OpenAlex 소속(‘소속 연도’ 기준)입니다. "
                    "한국인 여부는 이름·공저 기반 추정입니다.")
     chosen = st.multiselect(
-        f"상세 보기 / 비교 대상 (결과 목록에서 선택, 최대 {MAX_COMPARE}명 · 첫 번째 사람의 프로필이 아래에 표시)",
+        f"비교할 사람 (결과 목록에서 2–{MAX_COMPARE}명 선택 → 바로 아래에 비교가 나옵니다)",
         sorted(view["name"].tolist()), max_selections=MAX_COMPARE, key="pick",
     )
-    b1, b2 = st.columns([1, 4])
-    if b1.button("선택한 사람 비교 →", disabled=not chosen):
-        label = {o.split(" — ")[0]: o for o in people_list(None)}
-        st.session_state.cmp_pick = [label[n] for n in chosen[:MAX_COMPARE] if n in label]
-        st.toast("'교수 비교' 탭으로 이동하세요")
-    b2.download_button(
+    st.download_button(
         "CSV (개인정보 제외)",
         cdf.drop(columns=list(age.PII_COLUMNS & set(cdf.columns)) + ["추정"]).to_csv(index=False),
         "candidates.csv",
     )
-
-    if chosen:
-        who = chosen[0]
+    if len(chosen) == 1:
+        st.info("한 명만 선택했습니다. 비교하려면 한 명 이상 더 고르세요 (한 사람의 상세 정보는 위 표에서 이름을 클릭).")
+    if len(chosen) >= 2:
         st.divider()
-        st.subheader(who)
-        lk = links.person_links(con(), who)
-        st.markdown(" · ".join(
-            f"[{k}{' (검색)' if kind == 'search' else ''}]({u})" for k, (u, kind) in lk.items()))
-        d1, d2 = st.columns([2, 3])
-        with d1:
-            st.markdown("**학위·나이 근거** (로컬 암호화 DB)")
-            deg = con().execute(
-                "SELECT degree, year, institution, source, evidence FROM pii.degree WHERE person=? ORDER BY degree",
-                [who],
-            ).df()
-            st.dataframe(deg, hide_index=True, width="stretch")
-            r = con().execute(
-                "SELECT phd_year_eff, age_source, academic_age, birth_year, birth_source, first_top_year "
-                "FROM person_age WHERE person=?", [who]
-            ).df()
-            st.dataframe(r, hide_index=True, width="stretch")
-        with d2:
-            s = metrics.person_series(con(), [who], metrics.Filter(start=1970, end=THIS_YEAR,
-                                                                   areas=sel_areas, next_tier=next_tier, venues=sel_venues))
-            by_area = s.groupby("area").pubs.sum().sort_values()
-            fig = go.Figure(go.Bar(x=by_area.values, y=by_area.index, orientation="h",
-                                   marker=dict(color=SERIES[0], cornerradius=4),
-                                   hovertemplate="%{y}: %{x}편<extra></extra>"))
-            fig.update_layout(title="분야별 논문 수 (전체 경력)")
-            _plot(fig, height=max(240, 28 * len(by_area) + 80))
-            by_year = s.groupby("year").pubs.sum()
-            fig = go.Figure(go.Bar(x=by_year.index, y=by_year.values, marker=dict(color=SERIES[0], cornerradius=4),
-                                   hovertemplate="%{x}: %{y}편<extra></extra>"))
-            fig.update_layout(title="연도별 논문 수")
-            _plot(fig, height=260)
+        st.subheader("비교: " + " vs ".join(chosen))
+        render_compare(chosen, "search_cmp", G)
 
 
 # ───────────────────────── 교수 비교 ─────────────────────────
@@ -278,47 +290,7 @@ with tab_cmp:
     if len(names) < 1:
         st.info("이름을 검색해 선택하세요. 검색 탭에서 행을 골라 넘길 수도 있습니다.")
     else:
-        color = {n: SERIES[i] for i, n in enumerate(names)}
-        s = metrics.person_series(con(), names, F)
-        ages = con().execute(
-            "SELECT person, phd_year_eff, age_source FROM person_age WHERE person IN (SELECT unnest(?))", [names]
-        ).df().set_index("person")
-        info = pd.DataFrame({
-            "name": names,
-            "학문적 나이": [THIS_YEAR - ages.phd_year_eff.get(n) if n in ages.index and pd.notna(ages.phd_year_eff.get(n)) else None for n in names],
-            "나이 출처": [ages.age_source.get(n) if n in ages.index else None for n in names],
-            f"논문 {yr[0]}–{yr[1]}": [int(s[s["name"] == n].pubs.sum()) for n in names],
-        })
-        ui.people_table(ui.add_age(info, after="학문적 나이"), "cmp_info", F)
-
-        piv = s.pivot_table(index="area", columns="name", values="pubs", aggfunc="sum").fillna(0)
-        piv = piv.loc[piv.sum(axis=1).sort_values().index]
-        fig = go.Figure()
-        for n in names:
-            if n in piv:
-                fig.add_bar(y=piv.index, x=piv[n], name=n, orientation="h",
-                            marker=dict(color=color[n], cornerradius=4),
-                            hovertemplate=f"{n}<br>%{{y}}: %{{x}}편<extra></extra>")
-        fig.update_layout(barmode="group", bargap=0.25, bargroupgap=0.08,
-                          title=f"분야별 논문 수 ({yr[0]}–{yr[1]})")
-        _plot(fig, height=max(300, 22 * len(piv) * max(1, len(names)) // 2 + 120))
-
-        full = metrics.person_series(con(), names, metrics.Filter(start=1970, end=THIS_YEAR, areas=sel_areas,
-                                                                   next_tier=next_tier, venues=sel_venues))
-        fig = go.Figure()
-        for n in names:
-            d = full[full["name"] == n].groupby("year").pubs.sum().sort_index().cumsum()
-            if d.empty:
-                continue
-            base = ages.phd_year_eff.get(n) if n in ages.index else None
-            x = d.index - base if base is not None and pd.notna(base) else d.index
-            fig.add_scatter(x=x, y=d.values, name=n, mode="lines+markers",
-                            line=dict(color=color[n], width=2), marker=dict(size=8),
-                            hovertemplate=f"{n}<br>PhD 후 %{{x}}년: 누적 %{{y:.0f}}편<extra></extra>")
-        fig.update_layout(title="누적 논문 수 — PhD 취득 연도 기준 정렬 (x=PhD 후 연차, 추정 포함)",
-                          hovermode="x unified")
-        fig.update_xaxes(title="PhD 후 연차", zeroline=True, zerolinecolor="rgba(128,128,128,0.4)")
-        _plot(fig, height=380)
+        render_compare(names, "cmp")
 
 
 # ───────────────────────── 데이터 현황 ─────────────────────────
