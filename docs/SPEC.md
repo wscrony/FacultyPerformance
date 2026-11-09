@@ -109,9 +109,34 @@
   app/  Streamlit 대시보드  ·  CLI (fp query/export)
 ```
 
-- **언어와 저장소**: Python 3.12, DuckDB. 원본은 Parquet 스냅샷으로 보관한다.
+- **언어와 저장소**: Python 3.12, DuckDB (공개 데이터 DB와 개인정보 DB를 분리, §3.2). 원본은 Parquet 스냅샷으로 로컬에 보관한다.
 - **스케줄러**: 로컬 macOS `launchd` (주 1회 CSrankings, 월 1회 DBLP, ORCID, OpenAlex).
-  - GitHub Actions도 가능하다. 다만 저장소가 private이고 DBLP 덤프가 크기 때문에(~1GB) 로컬 실행을 기본으로 한다.
+  - 클라우드 CI(GitHub Actions 등)는 쓰지 않는다. 개인정보가 로컬 밖에서 처리되면 안 되기 때문이다 (§3.2).
+
+### 3.2 개인정보 보관 원칙 (필수)
+연구자 개인정보는 **로컬 DB에만** 둔다. 개인정보는 나이, 학위 연도, 소속 이력, 홈페이지 내용, 추출 근거, 수동 메모를 말한다.
+
+- **DB 분리**
+  - `data/public.duckdb`: 논문, venue, CSrankings 집계. 공개 출처에서 다시 만들 수 있는 데이터다.
+  - `data/pii.duckdb`: `degree`, `affiliation` 이력, `homepage_cache`, `manual_note`, `estimated_birth_year`.
+  - `pii.duckdb`는 **DuckDB 파일 암호화**(`ATTACH ... (ENCRYPTION_KEY ...)`)를 적용한다. 키는 macOS Keychain에 보관한다.
+  - 분석할 때는 두 DB를 함께 ATTACH해서 조인한다.
+- **git 제외**
+  - `data/`, `cache/`, `exports/`, `*.duckdb`, `*.parquet`는 `.gitignore`에 넣는다.
+  - 저장소에는 코드와 설정만 커밋한다. pre-commit hook에서 data 파일이 커밋되지 않는지 검사한다.
+- **외부 전송 최소화**
+  - ORCID, OpenAlex, DBLP 조회는 **식별자로 조회만** 한다.
+  - 홈페이지 HTML 원문과 추출 결과는 로컬 `cache/`와 `pii.duckdb`에만 저장한다.
+- **LLM 추출**
+  - 공개 홈페이지 텍스트 중 학력/CV 구간만 잘라서 보낸다.
+  - 결과(연도, 근거 문장)는 로컬에만 저장한다.
+  - 완전 오프라인이 필요하면 LLM 단계를 끄고 규칙 기반 추출과 수동 입력만 쓰는 옵션(`--no-llm`)을 둔다.
+- **Export**
+  - CSV는 기본적으로 개인정보 컬럼을 제외한다.
+  - `--include-pii`를 명시해야 포함하며, 파일은 `exports/`(git 제외)에만 쓴다.
+- **삭제·정정**
+  - `fp pii forget <person>`으로 특정인의 개인정보 레코드와 캐시를 삭제한다.
+  - 다음 갱신 때 다시 수집되지 않도록 제외 목록에 등록한다.
 - **UI**: Streamlit. 내부용이며 개발 속도가 우선이다. CLI도 함께 제공해 쿼리와 CSV export를 할 수 있게 한다.
 
 ### 3.1 데이터 소스 역할

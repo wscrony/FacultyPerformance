@@ -1,0 +1,10 @@
+# Researcher personal data and all fetched/derived data stay local only (see docs/SPEC.md §3.2)
+data/
+cache/
+exports/
+*.duckdb
+*.duckdb.wal
+*.parquet
+*.csv
+.venv/
+__pycache__/
