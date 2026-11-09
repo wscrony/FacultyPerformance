@@ -24,7 +24,11 @@ ages = active.academic_age.dropna()
 ui.kpis([
     ("교수 (CSrankings)", f"{len(active)}명", "대상 학회 논문이 1편 이상인 교수"),
     (f"논문 {f.start}–{f.end}", f"{int(row.papers.iloc[0]) if len(row) else 0:,}편", "교수 참여 논문 (중복 제거)"),
-    ("세계 순위", f"{int(row['rank'].iloc[0])}위" if len(row) else "-", "같은 기간·분야, 논문 수 기준"),
+    (f"세계 순위 · {'+'.join(f.fields) if f.fields else ('선택 분야' if (f.areas or f.venues) else '전 분야')}",
+     f"{int(row['rank'].iloc[0])}위" if len(row) else "-",
+     f"{f.start}–{f.end}, {'확장 학회 포함' if f.next_tier else 'top 학회만'}. 전 세계 CSrankings 기관 중 "
+     "교수 참여 논문 수(중복 제거) 기준. CSrankings 사이트는 공저자 수로 나눈 adjusted count로 순위를 매겨 "
+     "몇 계단 다를 수 있습니다."),
     ("학문적 나이 중앙값", f"{ages.median():.0f}년" if len(ages) else "-", "PhD 후 연수 (추정 포함)"),
 ])
 
