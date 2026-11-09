@@ -107,13 +107,13 @@ def _venues() -> list[str]:
     return [r[0] for r in con().execute("SELECT venue FROM venue ORDER BY 1").fetchall()]
 
 
-def board_filter(key: str, default_years: int = 5, credit: bool = True):
+def board_filter(key: str, default_years: int = 10, credit: bool = True):
     from fp.boards import BF
 
     areas = _areas()
     title = {a: t for a, t, _ in areas}
     c1, c2, c3, c4 = st.columns([2, 2, 3, 2])
-    yr = c1.slider("기간", 2000, THIS_YEAR, (THIS_YEAR - default_years, THIS_YEAR), key=f"{key}_yr")
+    yr = c1.slider("기간", 2000, THIS_YEAR, (THIS_YEAR - default_years + 1, THIS_YEAR), key=f"{key}_yr")
     from fp.boards import AREA_FIELD, FIELDS
 
     cats = c2.multiselect("분야", list(FIELDS), format_func=lambda k: f"{k} · {FIELDS[k][0]}", key=f"{key}_cat")

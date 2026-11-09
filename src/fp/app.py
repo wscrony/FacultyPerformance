@@ -52,7 +52,7 @@ def _plot(fig: go.Figure, height: int = 420):
 areas_df = area_options()
 with st.sidebar:
     st.header("필터")
-    yr = st.slider("기간", 1980, THIS_YEAR, (THIS_YEAR - 10, THIS_YEAR))
+    yr = st.slider("기간", 1980, THIS_YEAR, (THIS_YEAR - 9, THIS_YEAR))
     cats = st.multiselect("분야 그룹", ["ai", "systems", "theory", "interdisciplinary"])
     pool = areas_df[areas_df.category.isin(cats)] if cats else areas_df
     picked = st.multiselect(
