@@ -363,3 +363,21 @@ def kr_faculty_field_rank(con, f: BF):
         """,
         [f.start, f.end, f.next_tier],
     ).df()
+
+
+def person_field_counts(con, names: list[str], f: BF):
+    """Papers per person × department field in the filter window (any names, e.g. faculty abroad)."""
+    if not names:
+        import pandas as pd
+
+        return pd.DataFrame(columns=["name", "field", "papers"])
+    w, prm = f.where("p", "v")
+    return con.execute(
+        f"""
+        SELECT a.name, {_FIELD_SQL} AS field, count(*) AS papers
+        FROM dblp_authorship a JOIN dblp_paper p USING (key) JOIN venue v ON v.venue = p.venue
+        WHERE a.name IN (SELECT unnest(?)) AND {w}
+        GROUP BY 1, 2
+        """,
+        [names, *prm],
+    ).df()

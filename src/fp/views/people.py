@@ -156,16 +156,45 @@ ui.plot(fig, height=520, key="p_scatter")
 
 # ── faculty abroad (recruiting view) ──
 st.subheader("해외 대학의 한국인 교수")
-rows, cols = age.candidates(c, metrics.Filter(start=f.start, end=f.end, areas=f.areas, venues=f.venues),
-                            scope="korean", limit=None)
+rows, cols = age.candidates(c, metrics.Filter(start=f.start, end=f.end, areas=f.areas, venues=f.venues,
+                                              next_tier=f.next_tier), scope="korean", limit=None)
 cand = pd.DataFrame(rows, columns=cols)
-fa = cand[cand.role == "faculty abroad"][["rank", "name", "institution", "age", "acad_age", "pubs", "first_au",
-                                           "last_au", "cites", "cohort_pctl"]]
-fa = fa.assign(rank=range(1, len(fa) + 1))
-st.dataframe(fa, hide_index=True, width="stretch", height=420, column_config={
-    "rank": "순위", "name": "이름", "institution": "소속", "age": st.column_config.NumberColumn("나이(추정)"),
-    "acad_age": "학문적 나이", "pubs": st.column_config.ProgressColumn("논문", format="%d", min_value=0,
-                                                                   max_value=int(fa.pubs.max() if len(fa) else 1)),
-    "first_au": "1저자", "last_au": "마지막저자", "cites": "피인용",
-    "cohort_pctl": st.column_config.NumberColumn("국내 동년배 대비 pctl", format="%d"),
-})
+fa = cand[cand.role == "faculty abroad"][["name", "institution", "age", "acad_age", "pubs", "first_au", "last_au",
+                                           "cites"]]
+pf = B.person_field_counts(c, list(fa.name), f)
+order = {k: n for n, k in enumerate(B.FIELDS)}
+if pf.empty:
+    st.info("조건에 맞는 해외 한국인 교수가 없습니다.")
+else:
+    pf["fo"] = pf.field.map(order)
+    main = pf.sort_values(["name", "papers", "fo"], ascending=[True, False, True]).drop_duplicates("name")
+    main = main.rename(columns={"field": "main_field", "papers": "field_papers"})[["name", "main_field", "field_papers"]]
+    fa = fa.merge(main, on="name")
+    fa["rank"] = fa.groupby("main_field").field_papers.rank(method="min", ascending=False).astype(int)
+    fa["n_abroad"] = fa.groupby("main_field").name.transform("count")
+    # where they would rank among KR faculty in the same field and window
+    krp = B.kr_faculty_field_rank(c, f)
+    krp = krp[krp.field != "전체"]
+    fa["kr_equiv"] = [
+        f"{1 + int((krp[(krp.field == m)].papers > n).sum())}위 / {int((krp.field == m).sum())}명"
+        for m, n in zip(fa.main_field, fa.field_papers)
+    ]
+    fa["rank_txt"] = [f"{r}위 / {n}명" for r, n in zip(fa["rank"], fa.n_abroad)]
+    fa["fo"] = fa.main_field.map(order)
+    fa = fa.sort_values(["fo", "rank"])
+    mx = int(fa.field_papers.max() or 1)
+    st.caption(f"주 분야 = {f.start}–{f.end} 논문이 가장 많은 분야. 국내 환산 순위 = 같은 분야·기간 국내 교수들 사이에 "
+               "넣었을 때의 순위.")
+    st.dataframe(
+        fa[["main_field", "rank_txt", "kr_equiv", "name", "institution", "field_papers", "pubs", "first_au", "last_au",
+            "cites", "age", "acad_age"]],
+        hide_index=True, width="stretch", height=460, key="p_abroad",
+        column_config={
+            "main_field": "주 분야", "rank_txt": st.column_config.TextColumn("분야 내 순위 (해외 한국인 교수)"),
+            "kr_equiv": st.column_config.TextColumn("국내 환산 순위"), "name": "이름", "institution": "소속",
+            "field_papers": st.column_config.ProgressColumn(f"주 분야 논문 {f.start}–{f.end}", format="%d",
+                                                            min_value=0, max_value=mx),
+            "pubs": "전체 분야 논문", "first_au": "1저자", "last_au": "마지막저자", "cites": "피인용",
+            "age": st.column_config.NumberColumn("나이(추정)"), "acad_age": "학문적 나이",
+        },
+    )
