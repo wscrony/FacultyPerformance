@@ -34,11 +34,14 @@ def wanted_keys(con) -> dict[str, str]:
     from fp import topvenues
 
     cat = topvenues.catalog(con)
-    have = {r[0] for r in con.execute(f"SELECT venue FROM {topvenues.base_venue(con)}").fetchall()}
+    base = topvenues.base_venue(con)
+    have = {r[0] for r in con.execute(f"SELECT venue FROM {base} WHERE category IS DISTINCT FROM 'extra'").fetchall()}
+    extra = {r[0] for r in con.execute(f"SELECT venue FROM {base} WHERE category = 'extra'").fetchall()}
     out = {}
-    for k in cat[cat.venue.isna()].dblp_key:
-        if not re.fullmatch(r"conf/[\w-]+", k or ""):
-            continue  # series/… (Findings) and journals are out of scope
+    # venues with no data yet, plus the ones already added from here (a re-parse must keep them)
+    for k in cat[cat.venue.isna() | cat.venue.isin(extra)].dblp_key:
+        if not re.fullmatch(r"(conf|journals)/[\w-]+", k or ""):
+            continue  # series/… (ACL Findings: filed inside the ACL/EMNLP proceedings) is out of scope
         code = k.split("/", 1)[1].lower()
         out[k] = code if code not in have else f"x_{code}"
     return out
@@ -65,7 +68,7 @@ def parse(prefixes: dict[str, str], src: Path = RAW, out: Path = OUT,
 
     # lxml reads .gz by filename itself; passing the path (not a stream) lets it find dblp.dtd next to the dump,
     # which is needed to resolve entities like &eacute; in author names
-    ctx = etree.iterparse(str(src), events=("end",), tag="inproceedings", huge_tree=True, load_dtd=True,
+    ctx = etree.iterparse(str(src), events=("end",), tag=("inproceedings", "article"), huge_tree=True, load_dtd=True,
                           resolve_entities=True, no_network=True, dtd_validation=False)
     for _, elem in ctx:
         seen += 1
@@ -127,11 +130,14 @@ def reapply(con, out: Path = OUT) -> dict[str, int]:
                         SELECT a.key, a.pos, coalesce(al.name, a.name), a.raw_name, a.orcid
                         FROM read_parquet('{out}/authorship.parquet') a LEFT JOIN alias al ON al.alias = a.name
                         WHERE a.key IN (SELECT key FROM dblp_paper WHERE venue IN (SELECT venue FROM _xv))""")
+        # venues whose papers CSrankings' DBLP already has but that lack a venue row (PoPETs) get one too
+        con.execute(f"""CREATE OR REPLACE TEMP TABLE _nv AS SELECT venue FROM _xv UNION
+                        SELECT DISTINCT venue FROM dblp_paper WHERE venue NOT IN (SELECT venue FROM {base})""")
         # area = the CSrankings area most of the venue's authors publish in
         con.execute(f"""
             INSERT INTO {base} (venue, area, area_title, category, next_tier)
             WITH auth AS (SELECT DISTINCT p.venue AS xv, a.name FROM dblp_authorship a JOIN dblp_paper p USING (key)
-                          WHERE p.venue IN (SELECT venue FROM _xv)),
+                          WHERE p.venue IN (SELECT venue FROM _nv)),
                  votes AS (SELECT au.xv, v.area, count(*) AS n FROM auth au
                            JOIN author_pub ap ON ap.name = au.name
                            JOIN {base} v ON v.venue = ap.venue AND v.category IS DISTINCT FROM 'extra'
@@ -139,7 +145,7 @@ def reapply(con, out: Path = OUT) -> dict[str, int]:
                  best AS (SELECT xv, arg_max(area, n) AS area FROM votes GROUP BY 1),
                  titles AS (SELECT area, any_value(area_title) AS area_title FROM {base} GROUP BY 1)
             SELECT x.venue, b.area, t.area_title, 'extra', TRUE
-            FROM _xv x LEFT JOIN best b ON b.xv = x.venue LEFT JOIN titles t ON t.area = b.area
+            FROM _nv x LEFT JOIN best b ON b.xv = x.venue LEFT JOIN titles t ON t.area = b.area
             WHERE x.venue IN (SELECT DISTINCT venue FROM dblp_paper)""")
         con.execute("""CREATE OR REPLACE TABLE author_pub AS
             SELECT a.name, p.venue, p.year, count(*)::INTEGER AS count, sum(1.0 / p.n_authors) AS adjustedcount,

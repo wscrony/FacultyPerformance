@@ -499,10 +499,11 @@ def top_venue_editor(expanded: bool = False) -> None:
             st.rerun()
         if st.session_state.get("tv_skipped"):
             st.warning("논문 데이터가 없어 아직 셀 수 없는 학회: " + ", ".join(st.session_state.pop("tv_skipped"))
-                       + " — 전체 DBLP를 받아야 합니다.")
-        n_missing = int((~df.countable).sum())
-        st.markdown(f"**'논문 데이터 없음' {n_missing}개 학회** (예: SoCG, CIKM, COLT) — 지금 데이터는 CSrankings가 다루는 "
-                    "학회의 DBLP 논문만 있어, 이 학회들은 전체 DBLP(약 1.1GB)를 받아 넣어야 top으로 셀 수 있습니다.")
+                       + " — DBLP에서 따로 구분되지 않는 학회입니다.")
+        missing = sorted(df[~df.countable].name.dropna().unique())
+        if missing:
+            st.caption(f"논문 데이터가 없는 학회 {len(missing)}개: {', '.join(missing)} — DBLP가 이 학회 논문을 본 학회 "
+                       "(ACL·EMNLP 등) 안에 섞어 기록해서 따로 셀 수 없습니다. 나머지 목록 학회는 전체 DBLP에서 받아 넣었습니다.")
 
 
 def top_venue_status() -> None:
