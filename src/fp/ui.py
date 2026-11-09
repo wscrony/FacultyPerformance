@@ -373,8 +373,9 @@ def top_venue_editor() -> None:
 
     c = con()
     ours = c.execute(
-        f"""SELECT v.venue, v.area, v.area_title, v.next_tier AS cur_nt, m.next_tier AS cs_nt, count(p.key) AS papers
-            FROM venue v JOIN {topvenues.base_venue(c)} m USING (venue) LEFT JOIN dblp_paper p ON p.venue = v.venue
+        f"""SELECT m.venue, m.area, m.area_title, coalesce(v.next_tier, TRUE) AS cur_nt,
+                   m.next_tier OR m.category = 'extra' AS cs_nt, m.category = 'extra' AS extra, count(p.key) AS papers
+            FROM {topvenues.base_venue(c)} m LEFT JOIN venue v USING (venue) LEFT JOIN dblp_paper p ON p.venue = m.venue
             GROUP BY ALL"""
     ).df()
     cat = topvenues.catalog(c)
@@ -392,8 +393,8 @@ def top_venue_editor() -> None:
     df["field"] = df.area.map(lambda a: B.AREA_FIELD.get(a, "기타") if isinstance(a, str) else "")
     df["top"] = ~df.cur_nt.fillna(True).astype(bool)
     df["csr"] = df.cs_nt.map({False: "top", True: "확장(next tier)"}).fillna("없음")
-    df["data"] = [f"{int(n):,}편" if n and v and v in set(ours.venue) else
-                  (f"{int(n):,}편 (CSrankings 외)" if n else "없음 — DBLP 받아야 함")
+    df.loc[df.get("extra", pd.Series(False, index=df.index)).fillna(False).astype(bool), "csr"] = "CSrankings 외"
+    df["data"] = [f"{int(n):,}편" if n and v and v in set(ours.venue) else "없음"
                   for n, v in zip(df.papers.fillna(0), df.venue)]
     df["countable"] = df.venue.isin(ours.venue)
     for col in ("kiise", "bk21", "kaist", "snu", "postech"):

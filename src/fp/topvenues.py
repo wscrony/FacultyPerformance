@@ -59,8 +59,10 @@ def apply(con) -> None:
                   CASE WHEN venue IN (SELECT unnest(?::VARCHAR[])) THEN FALSE
                        WHEN venue IN (SELECT unnest(?::VARCHAR[])) THEN TRUE
                        ELSE next_tier END AS next_tier
-           FROM {base}""".replace("{base}", base),
-        [s["top"], s["not_top"]],
+           FROM {base}
+           -- venues added from the full DBLP (category 'extra') exist only once the user marks them top
+           WHERE category IS DISTINCT FROM 'extra' OR venue IN (SELECT unnest(?::VARCHAR[]))""".replace("{base}", base),
+        [s["top"], s["not_top"], s["top"]],
     )
 
 

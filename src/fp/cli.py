@@ -382,6 +382,22 @@ def update_openalex(
     console.print(stats)
 
 
+@update_app.command("dblp-extra")
+def update_dblp_extra(parse: bool = typer.Option(True, help="re-parse data/raw/dblp_full/dblp.xml.gz first")):
+    """Venues of the top-venue catalog that CSrankings lacks (SoCG, CIKM, ...) from the full DBLP dump."""
+    from fp import pii
+    from fp.ingest import dblp_extra
+
+    if parse:  # read-only while parsing (~20 min), so the app can keep running
+        ro = pii.connect(read_only=True)
+        prefixes = dblp_extra.wanted_keys(ro)
+        ro.close()
+        typer.echo(f"{len(prefixes)} venues to extract")
+        with _progress("dblp.xml records", every=1) as cb:
+            typer.echo(dblp_extra.parse(prefixes, progress=lambda n: cb(n, 0)))
+    typer.echo(dblp_extra.reapply(pii.connect()))  # needs the write lock: stop the app first
+
+
 @update_app.command("title-citations")
 def update_title_citations(force: bool = typer.Option(False), limit: Optional[int] = typer.Option(None)):
     """Citations for papers without a DOI (NeurIPS/ICLR/...), by exact title match on OpenAlex."""

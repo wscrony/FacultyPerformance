@@ -7,12 +7,12 @@ import traceback
 from datetime import date
 from typing import Callable
 
-STEPS = ["csrankings", "dblp", "korean", "korean_verify", "orcid", "homepage", "degree_llm", "openalex", "inst_types", "citations", "title_citations", "snapshot", "report"]
+STEPS = ["csrankings", "dblp", "dblp_extra", "korean", "korean_verify", "orcid", "homepage", "degree_llm", "openalex", "inst_types", "citations", "title_citations", "snapshot", "report"]
 
 
 def run_all(log: Callable[[str], None] = print, skip: set[str] | None = None, use_llm: bool = True) -> dict:
     from fp import institutions, pii, pool, report
-    from fp.ingest import llm_degree, citations, csrankings, dblp, homepage, openalex, orcid
+    from fp.ingest import llm_degree, citations, csrankings, dblp, dblp_extra, homepage, openalex, orcid
 
     skip = skip or set()
     out: dict[str, object] = {}
@@ -51,6 +51,7 @@ def run_all(log: Callable[[str], None] = print, skip: set[str] | None = None, us
             return {"sha": sha[:12], **dblp.load(con, sha)}
 
         step("dblp", do_dblp)
+        step("dblp_extra", lambda: dblp_extra.reapply(con))  # catalog venues outside CSrankings (reload wipes them)
         step("korean", lambda: pool.classify(con, since=date.today().year - 10, use_llm=use_llm))
         step("korean_verify", lambda: pool.verify(con) if use_llm else "skipped (no llm)")
         step("orcid", lambda: {s: orcid.update(con, scope=s) for s in ("kr", "korean")})
