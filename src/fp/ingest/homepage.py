@@ -55,6 +55,10 @@ class Page:
     links: list[tuple[str, str]] = field(default_factory=list)  # (anchor text, absolute url)
 
 
+class Unreachable(Exception):
+    """Host did not answer after retries (often transient on lab servers) → retried next run."""
+
+
 class Fetcher:
     def __init__(self, sleep: float = 0.5):
         self.sess = requests.Session()
@@ -68,7 +72,7 @@ class Fetcher:
         if base not in self._robots:
             rp = urllib.robotparser.RobotFileParser()
             try:
-                r = self._get(base + "/robots.txt", max_bytes=500_000)
+                r = self._get(base + "/robots.txt", max_bytes=500_000, attempts=1)
                 rp.parse(r.text.splitlines() if r is not None and r.status_code == 200 else [])
                 self._robots[base] = rp
             except Exception:
@@ -76,20 +80,27 @@ class Fetcher:
         rp = self._robots[base]
         return rp is None or rp.can_fetch(USER_AGENT, url)
 
-    def _get(self, url: str, max_bytes: int = MAX_BYTES):
-        for verify in (True, False):  # many university sites have broken TLS chains
-            try:
-                r = self.sess.get(url, timeout=20, verify=verify, stream=True, allow_redirects=True)
-                body = r.raw.read(max_bytes + 1, decode_content=True)
-                if len(body) > max_bytes:
-                    return None
-                r._content = body
-                return r
-            except requests.exceptions.SSLError:
-                continue
-            except (requests.RequestException, OSError):  # DNS failure, timeout, reset …
-                return None
-        return None
+    def _get(self, url: str, max_bytes: int = MAX_BYTES, attempts: int = 3):
+        """Response with body preloaded, None for oversize/TLS-unusable, Unreachable after retries."""
+        last: Exception | None = None
+        for attempt in range(attempts):
+            for verify in (True, False):  # many university sites have broken TLS chains
+                try:
+                    r = self.sess.get(url, timeout=(10, 30), verify=verify, stream=True, allow_redirects=True)
+                    body = r.raw.read(max_bytes + 1, decode_content=True)
+                    r.close()
+                    if len(body) > max_bytes:
+                        return None
+                    r._content = body
+                    return r
+                except requests.exceptions.SSLError as e:
+                    last = e
+                    continue
+                except (requests.RequestException, OSError) as e:  # DNS, connect timeout, reset …
+                    last = e
+                    break
+            time.sleep(3 * (attempt + 1))
+        raise Unreachable(repr(last)[:200])
 
     def fetch(self, url: str) -> Page | None:
         if not url or not url.startswith(("http://", "https://")) or not self.allowed(url):
@@ -171,7 +182,10 @@ def collect(fetcher: Fetcher, homepage: str) -> tuple[str, list[str]]:
     texts, used = [page.text], [page.url]
     if not DEGREE_HINT.search(page.text):
         for u in follow_candidates(page):
-            sub = fetcher.fetch(u)
+            try:
+                sub = fetcher.fetch(u)
+            except Unreachable:
+                continue
             if sub and sub.text:
                 texts.append(sub.text)
                 used.append(sub.url)
@@ -310,7 +324,7 @@ def llm_extractor(model: str = "haiku") -> Callable[[str, str, str], dict]:
 # ───────────────────────── orchestration ─────────────────────────
 
 
-def targets(con, scope: str = "kr", force: bool = False) -> list[tuple[str, str, str]]:
+def targets(con, scope: str = "kr", force: bool = False, retry_no_page: bool = False) -> list[tuple[str, str, str]]:
     where = "i.country = 'kr'" if scope == "kr" else "TRUE"
     return con.execute(
         f"""SELECT DISTINCT f.name, f.affiliation, trim(f.homepage) FROM cs_faculty f
@@ -320,9 +334,10 @@ def targets(con, scope: str = "kr", force: bool = False) -> list[tuple[str, str,
               AND f.name NOT IN (SELECT person FROM pii.degree WHERE degree = 'phd' AND year IS NOT NULL
                                   AND source IN ('manual', 'orcid'))
               AND (? OR f.name NOT IN (SELECT person FROM pii.fetch_log WHERE source = 'homepage'
-                                        AND status <> 'error' AND fetched_at > now() - INTERVAL {REFRESH_DAYS} DAY))
+                                        AND status NOT IN ('error', 'unreachable')
+                                        AND (NOT ? OR status <> 'no_page') AND fetched_at > now() - INTERVAL {REFRESH_DAYS} DAY))
             ORDER BY 1""",
-        [force],
+        [force, retry_no_page],
     ).fetchall()
 
 
@@ -332,23 +347,27 @@ def update(
     force: bool = False,
     limit: int | None = None,
     use_llm: bool = True,
+    retry_no_page: bool = False,
     workers: int = 4,
     extractor: Callable[[str, str, str], dict] | None = None,
     fetcher: Fetcher | None = None,
     progress: Callable[[int, int], None] | None = None,
 ) -> dict[str, int]:
-    todo = targets(con, scope, force)[: limit or None]
+    todo = targets(con, scope, force, retry_no_page)[: limit or None]
     fetcher = fetcher or Fetcher()
     if extractor is None:
         extractor = llm_extractor() if use_llm else (lambda n, a, s: regex_extract(s))
     method = "llm" if use_llm else "regex"
-    stats = {"targets": len(todo), "no_page": 0, "no_snippet": 0, "not_person": 0, "error": 0, "ok": 0,
+    stats = {"targets": len(todo), "no_page": 0, "no_snippet": 0, "not_person": 0, "unreachable": 0, "error": 0, "ok": 0,
              "phd": 0, "birth": 0}
 
     def work(row):
         name, aff, url = row
         try:
-            snip, used = collect(fetcher, url)
+            try:
+                snip, used = collect(fetcher, url)
+            except Unreachable:
+                return row, "unreachable", None, None, []
             if not used:
                 return row, "no_page", None, None, used
             if not snip:

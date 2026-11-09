@@ -200,6 +200,7 @@ def update_homepage(
     limit: Optional[int] = typer.Option(None),
     no_llm: bool = typer.Option(False, "--no-llm", help="regex only; nothing leaves this machine except page fetches"),
     workers: int = typer.Option(4),
+    retry_no_page: bool = typer.Option(False, "--retry-no-page", help="also retry people whose page was missing"),
 ):
     """Extract degree/birth years from homepages/CVs of people still missing a PhD year."""
     from fp import pii
@@ -208,7 +209,8 @@ def update_homepage(
     con = pii.connect()
     with _progress("homepage") as cb:
         stats = homepage.update(
-            con, scope=scope, force=force, limit=limit, use_llm=not no_llm, workers=workers, progress=cb
+            con, scope=scope, force=force, limit=limit, use_llm=not no_llm, workers=workers,
+            retry_no_page=retry_no_page, progress=cb
         )
     console.print(stats)
 

@@ -101,12 +101,14 @@ def con(tmp_path, monkeypatch):
 def test_pii_db_is_encrypted(con, tmp_path):
     import duckdb
 
-    con.execute("INSERT INTO pii.birth (person, year, source, confidence) VALUES ('Old', 1970, 'manual', 1)")
+    marker = "ZZ-Plaintext-Marker-Person-1970"
+    con.execute("INSERT INTO pii.birth (person, year, source, confidence) VALUES (?, 1970, 'manual', 1)", [marker])
+    con.execute("CHECKPOINT pii")
     con.close()
     raw = duckdb.connect()
     with pytest.raises(Exception):
         raw.execute(f"ATTACH '{tmp_path / 'pii.duckdb'}' AS x")
-    assert b"Old" not in (tmp_path / "pii.duckdb").read_bytes()
+    assert marker.encode() not in (tmp_path / "pii.duckdb").read_bytes()
 
 
 def test_orcid_update_with_fake_fetch(con):

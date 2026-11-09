@@ -102,3 +102,18 @@ def test_update_end_to_end(con):  # noqa: F811
     assert con.execute("SELECT phd_year, age_source FROM person_age WHERE person='Young'").fetchone() == (2012, "homepage")
     # refetch window: nothing to do now
     assert h.targets(con) == []
+
+
+class DownFetcher:
+    def fetch(self, url):
+        raise h.Unreachable("timeout")
+
+
+def test_unreachable_is_retried_next_run(con):  # noqa: F811
+    con.execute("UPDATE cs_faculty SET homepage = 'https://a.kr/' || lower(name)")
+    stats = h.update(con, extractor=lambda *a: {}, fetcher=DownFetcher(), workers=1)
+    assert stats["unreachable"] == 3
+    assert len(h.targets(con)) == 3  # retried
+    stats = h.update(con, extractor=lambda *a: {}, fetcher=FakeFetcher({}), workers=1)
+    assert stats["no_page"] == 3
+    assert h.targets(con) == [] and len(h.targets(con, retry_no_page=True)) == 3
