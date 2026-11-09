@@ -12,7 +12,7 @@ def test_app_renders_all_tabs(con):  # noqa: F811
     con.close()
     at = AppTest.from_file(APP, default_timeout=60).run()
     assert not at.exception, [e.message for e in at.exception]
-    assert len(at.tabs) == 4
+    assert len(at.tabs) == 3  # 학교 비교 merged into 국내 기관
     # pick people in search → inline comparison right there (one person → hint to add more)
     opts = at.multiselect(key="pick").options
     at.multiselect(key="pick").set_value(opts[:1]).run()

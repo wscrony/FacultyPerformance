@@ -22,9 +22,17 @@ ui.top_venue_status()
 
 # ── KR institution ranking ──
 st.subheader("국내 기관 순위")
-kr_tab = inst[inst.country == "kr"].sort_values("papers", ascending=False)
+st.caption("검색·비교 페이지의 '학교 비교'는 이 표로 합쳤습니다 (피인용 포함).")
+kr_tab = inst[inst.country == "kr"].sort_values("papers", ascending=False).copy()
+from fp import metrics as _M  # citations (merged in from the former 검색·비교 → 학교 비교 tab)
+
+_sc = _M.school_citations(c, ui._as_filter(f)).set_index("institution")
+kr_tab["cites"] = kr_tab.institution.map(_sc.cites).fillna(0).astype(int)
+kr_tab["cites_per_faculty"] = (kr_tab.cites / kr_tab.faculty.where(kr_tab.faculty > 0)).round(0)
+kr_tab["cite_cov"] = (100 * kr_tab.institution.map(_sc.cited_papers) / kr_tab.institution.map(_sc.papers)).round(0)
 pick_i = ui.clickable_table(
-    kr_tab[["institution", "rank", "papers", "faculty", "per_faculty", "rank_norm"]].reset_index(drop=True),
+    kr_tab[["institution", "rank", "papers", "faculty", "per_faculty", "rank_norm",
+            "cites", "cites_per_faculty", "cite_cov"]].reset_index(drop=True),
     "s_rank_tab", "institution", link_label="기관", link_help="클릭하면 교수 수에 포함된 교수 명단이 아래에 열립니다",
     height=min(460, 36 * len(kr_tab) + 40), extra_links=["faculty"],
     column_config={
@@ -37,6 +45,13 @@ pick_i = ui.clickable_table(
         "rank_norm": st.column_config.NumberColumn(
             "세계 순위 (1인당)", format="%d위",
             help=f"교수 {B.MIN_FACULTY_NORM}명 이상 기관 중 1인당 논문 수 순위 (미만이면 빈칸)"),
+        "cites": st.column_config.NumberColumn(
+            "피인용", format="localized",
+            help="이 기간·분야에서 그 기관 교수들이 쓴 고유 논문의 OpenAlex 피인용 합 (공저 논문은 한 번만)"),
+        "cites_per_faculty": st.column_config.NumberColumn("교수 1인당 피인용", format="localized"),
+        "cite_cov": st.column_config.NumberColumn(
+            "피인용 확보율", format="%d%%",
+            help="피인용 값을 찾은 논문 비율. DOI 없는 논문(NeurIPS 등)은 제목 매칭이 진행 중이라 낮을 수 있음"),
     },
 )
 st.caption(basis + f" 1인당 순위는 이 조건의 교수가 {B.MIN_FACULTY_NORM}명 이상인 전 세계 기관끼리 비교합니다. "

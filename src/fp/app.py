@@ -115,71 +115,8 @@ def render_compare(names: list[str], kp: str, flt: metrics.Filter | None = None)
 
 
 ui.top_venue_status()
-tab_school, tab_search, tab_cmp, tab_status = st.tabs(["학교 비교", "교수·후보자 검색", "교수 비교", "데이터 현황"])
-
-
-# ───────────────────────── 학교 비교 ─────────────────────────
-
-with tab_school:
-    rows, cols = metrics.school_ranking(con(), F)
-    df = pd.DataFrame(rows, columns=cols)
-    if df.empty:
-        st.info("조건에 맞는 데이터가 없습니다.")
-    else:
-        df["pubs_per_faculty"] = (df.pubs_total / df.faculty).round(1)
-        top = df.head(40 if region == "world" else 20)
-        c1, c2 = st.container(), st.container()
-        with c1:
-            st.subheader("순위")
-            t = top[["institution", "score", "faculty", "pubs_total", "pubs_per_faculty"]].round(2)
-            t.insert(0, "rank", t.score.rank(method="min", ascending=False).astype(int))
-            sc = metrics.school_citations(con(), F).set_index("institution")
-            t["cites"] = t.institution.map(sc.cites).fillna(0).astype(int)
-            t["cites_per_faculty"] = (t.cites / t.faculty).round(0).astype(int)
-            t["cite_cov"] = (100 * t.institution.map(sc.cited_papers) / t.institution.map(sc.papers)).round(0)
-            st.dataframe(
-                t, hide_index=True, width="stretch", height=min(560, 36 * len(top) + 40),
-                column_config={
-                    "rank": st.column_config.NumberColumn("순위", format="%d위", width="small"),
-                    "institution": "기관",
-                    "score": st.column_config.NumberColumn("점수", help="분야별 (논문 수+1)의 기하평균"),
-                    "faculty": st.column_config.NumberColumn("교수", format="%d명"),
-                    "pubs_total": st.column_config.NumberColumn("논문"),
-                    "pubs_per_faculty": st.column_config.NumberColumn("교수 1인당 논문", format="%.1f"),
-                    "cites": st.column_config.NumberColumn(
-                        "피인용", format="localized",
-                        help="이 기간·분야에서 그 학교 교수들이 쓴 고유 논문의 OpenAlex 피인용 합 (같은 학교 교수끼리 "
-                             "공저한 논문은 한 번만). 논문 수 열은 교수별로 세어 공저를 중복 집계합니다"),
-                    "cites_per_faculty": st.column_config.NumberColumn("교수 1인당 피인용", format="localized"),
-                    "cite_cov": st.column_config.NumberColumn(
-                        "피인용 확보율", format="%d%%",
-                        help="피인용 값을 찾은 논문 비율. DOI 없는 논문(NeurIPS 등)의 제목 매칭이 진행 중이라 낮을 수 있음"),
-                },
-            )
-        with c2:
-            st.subheader("학교 × 분야 (논문 수)")
-            m = metrics.school_area_matrix(con(), F)
-            m = m[m.institution.isin(top.institution.head(20))]
-            piv = m.pivot_table(index="institution", columns="area", values="pubs", aggfunc="sum").fillna(0)
-            piv = piv.loc[[i for i in top.institution if i in piv.index]]
-            piv = piv[piv.sum().sort_values(ascending=False).index]
-            norm = st.radio("값", ["절대값", "교수 1인당", "학교 내 비중(%)"], horizontal=True,
-                            help="ML/Vision이 커서 다른 분야가 묻힐 때 비중 보기가 유용합니다")
-            z, unit = piv, "편"
-            if norm == "교수 1인당":
-                z, unit = piv.div(top.set_index("institution").faculty.reindex(piv.index), axis=0), "편/교수"
-            elif norm == "학교 내 비중(%)":
-                z, unit = piv.div(piv.sum(axis=1), axis=0) * 100, "%"
-            fig = go.Figure(go.Heatmap(
-                z=z.values, x=z.columns, y=z.index, colorscale=SEQ_BLUE, xgap=2, ygap=2,
-                customdata=piv.values,
-                hovertemplate="%{y}<br>%{x}: %{z:.1f} " + unit + " (논문 %{customdata:.0f}편)<extra></extra>",
-                colorbar=dict(title=unit),
-            ))
-            fig.update_yaxes(autorange="reversed")
-            fig.update_xaxes(tickangle=-45, dtick=1)
-            _plot(fig, height=max(360, 26 * len(piv) + 120))
-        st.download_button("CSV 다운로드", df.drop(columns=["by_area"]).to_csv(index=False), "schools.csv")
+# 학교 비교 → merged into 국내 기관 (ranking + citations + field charts live there)
+tab_search, tab_cmp, tab_status = st.tabs(["교수·후보자 검색", "교수 비교", "데이터 현황"])
 
 
 # ───────────────────────── 교수·후보자 검색 ─────────────────────────
