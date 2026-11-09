@@ -89,8 +89,9 @@ for k, d in per_all.items():
                                      kind="mergesort").reset_index(drop=True)
 
 # ── overview ──
-ov = pd.DataFrame([{"field": k, "n": len(d), **{t: int((d.type == t).sum()) for t in types},
-                    "top": ", ".join(d.name.head(3))} for k, d in per_field.items()])
+ov = pd.DataFrame([{"field": k, "n": int((d["main"] == k).sum()), "n_any": len(d),
+                    **{t: int(((d.type == t) & (d["main"] == k)).sum()) for t in types},
+                    "top": ", ".join(d[d["main"] == k].name.head(3))} for k, d in per_field.items()])
 ui.kpis([
     ("후보 (중복 제외)", f"{cand[cand.name.isin(pd.concat(per_field.values()).name)].name.nunique():,}명",
      f"분야 논문 {min_p}편 이상인 사람만"),
@@ -101,16 +102,23 @@ ui.kpis([
 tabs = st.tabs(["요약"] + [f"{k}" for k in per_field])
 with tabs[0]:
     st.dataframe(ov, hide_index=True, width="stretch", column_config={
-        "field": "분야", "n": st.column_config.NumberColumn("후보", format="%d명"),
+        "field": "분야", "n": st.column_config.NumberColumn("후보 (주 분야)", format="%d명"),
+        "n_any": st.column_config.NumberColumn("이 분야 논문도 있는 사람 포함", format="%d명"),
         "top": f"상위 3명 ({SORTS[sort]} 순)", **{t: st.column_config.NumberColumn(t, format="%d") for t in types}})
     st.caption("한 사람이 여러 분야에 논문이 있으면 각 분야에 모두 나옵니다 ('주 분야' 열로 구분). 분야 탭에서 이름을 누르면 "
                "논문 목록·피인용·나이 근거가 열립니다.")
 
 for t, (k, d) in zip(tabs[1:], per_field.items()):
     with t:
-        st.markdown(f"**{k} · {B.FIELDS[k][0]}** — 후보 {len(d)}명")
-        tt = st.multiselect("유형 좁히기", types, default=types, key=f"rc_t_{k}")
+        st.markdown(f"**{k} · {B.FIELDS[k][0]}**")
+        q1, q2 = st.columns([3, 1.4])
+        tt = q1.multiselect("유형 좁히기", types, default=types, key=f"rc_t_{k}")
+        only_main = q2.toggle(f"주 분야가 {k}인 사람만", value=True, key=f"rc_main_{k}",
+                              help=f"끄면 주 분야는 다르지만 {k} 논문도 {min_p}편 이상인 사람까지 보입니다")
         d = d[d.type.isin(tt)]
+        if only_main:
+            d = d[d["main"] == k]
+        st.caption(f"후보 {len(d)}명")
         show = d[["name", "type", "institution", "main", "acad_age", "field", "recent", "per_year", "first", "cites",
                   "kr_equiv", "kr_pct", "cohort_pctl"]].copy()
         show.insert(0, "no", range(1, len(show) + 1))
