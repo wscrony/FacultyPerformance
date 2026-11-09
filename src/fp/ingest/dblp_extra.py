@@ -14,7 +14,6 @@ so field filters (HCI/ML/TC/…) work for it.
 
 from __future__ import annotations
 
-import gzip
 import re
 from pathlib import Path
 from typing import Callable
@@ -64,40 +63,41 @@ def parse(prefixes: dict[str, str], src: Path = RAW, out: Path = OUT,
                 for v in d.values():
                     v.clear()
 
-    with gzip.open(src, "rb") as fh:
-        ctx = etree.iterparse(fh, events=("end",), tag="inproceedings", huge_tree=True, load_dtd=True,
-                              resolve_entities=True, no_network=True, dtd_validation=False)
-        for _, elem in ctx:
-            seen += 1
-            key = elem.get("key", "")
-            pref = key.rsplit("/", 1)[0]
-            code = prefixes.get(pref)
-            authors = [("".join(a.itertext()).strip(), a.get("orcid")) for a in elem.findall("author")]
-            year_s = _text(elem, "year", "")
-            pages = _text(elem, "pages")
-            pc = pagecount(pages) if pages else -1
-            if code and authors and year_s.isdigit() and (pc < 0 or pc >= MIN_PAGES):
-                kept += 1
-                papers["key"].append(key)
-                papers["venue"].append(code)
-                papers["year"].append(int(year_s))
-                papers["n_authors"].append(len(authors))
-                papers["title"].append(_text(elem, "title"))
-                papers["page_count"].append(pc)
-                papers["doi"].append(_doi(elem))
-                for i, (raw, orcid) in enumerate(authors):
-                    auths["key"].append(key)
-                    auths["pos"].append(i + 1)
-                    auths["name"].append(raw)  # aliases applied at load (alias table)
-                    auths["raw_name"].append(raw)
-                    auths["orcid"].append(orcid)
-                if len(papers["key"]) >= batch:
-                    flush()
-            elem.clear()
-            while elem.getprevious() is not None:
-                del elem.getparent()[0]
-            if progress and seen % 100_000 == 0:
-                progress(seen)
+    # lxml reads .gz by filename itself; passing the path (not a stream) lets it find dblp.dtd next to the dump,
+    # which is needed to resolve entities like &eacute; in author names
+    ctx = etree.iterparse(str(src), events=("end",), tag="inproceedings", huge_tree=True, load_dtd=True,
+                          resolve_entities=True, no_network=True, dtd_validation=False)
+    for _, elem in ctx:
+        seen += 1
+        key = elem.get("key", "")
+        pref = key.rsplit("/", 1)[0]
+        code = prefixes.get(pref)
+        authors = [("".join(a.itertext()).strip(), a.get("orcid")) for a in elem.findall("author")]
+        year_s = _text(elem, "year", "")
+        pages = _text(elem, "pages")
+        pc = pagecount(pages) if pages else -1
+        if code and authors and year_s.isdigit() and (pc < 0 or pc >= MIN_PAGES):
+            kept += 1
+            papers["key"].append(key)
+            papers["venue"].append(code)
+            papers["year"].append(int(year_s))
+            papers["n_authors"].append(len(authors))
+            papers["title"].append(_text(elem, "title"))
+            papers["page_count"].append(pc)
+            papers["doi"].append(_doi(elem))
+            for i, (raw, orcid) in enumerate(authors):
+                auths["key"].append(key)
+                auths["pos"].append(i + 1)
+                auths["name"].append(raw)  # aliases applied at load (alias table)
+                auths["raw_name"].append(raw)
+                auths["orcid"].append(orcid)
+            if len(papers["key"]) >= batch:
+                flush()
+        elem.clear()
+        while elem.getprevious() is not None:
+            del elem.getparent()[0]
+        if progress and seen % 100_000 == 0:
+            progress(seen)
     flush()
     pw.close()
     aw.close()
