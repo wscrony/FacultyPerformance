@@ -343,3 +343,22 @@ def school_faculty_fields(con, school: str, f: BF):
         """,
         [school, f.start, f.end, f.next_tier],
     ).df()
+
+
+def kr_faculty_field_rank(con, f: BF):
+    """Rank of every KR faculty member among all KR faculty, per department field and overall ('전체')."""
+    return con.execute(
+        f"""
+        WITH fac AS (SELECT DISTINCT c.name FROM cs_faculty c JOIN institution i ON i.institution = c.affiliation
+                     WHERE i.country = 'kr'),
+        pp AS (SELECT a.name, {_FIELD_SQL} AS field, count(*) AS papers
+               FROM dblp_authorship a JOIN dblp_paper p USING (key) JOIN venue v ON v.venue = p.venue
+               WHERE a.name IN (SELECT name FROM fac) AND p.year BETWEEN ? AND ? AND (? OR NOT v.next_tier)
+               GROUP BY GROUPING SETS ((1, 2), (1)))
+        SELECT name, coalesce(field, '전체') AS field, papers,
+               rank() OVER (PARTITION BY coalesce(field, '전체') ORDER BY papers DESC) AS kr_rank,
+               count(*) OVER (PARTITION BY coalesce(field, '전체')) AS kr_n
+        FROM pp
+        """,
+        [f.start, f.end, f.next_tier],
+    ).df()

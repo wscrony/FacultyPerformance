@@ -64,19 +64,28 @@ with c2:
         ui.plot(fig, height=420, key="s_age")
 
 ff = B.school_faculty_fields(c, school, f)
+kr = B.kr_faculty_field_rank(c, f).set_index(["name", "field"])
 info = active.set_index("name")[["academic_age", "age_source", "papers_window", "main_area"]]
 fields_here = [k for k in B.FIELDS if k in set(ff[ff.papers_window > 0].field)]
 tabs = st.tabs(["전체"] + [f"{k} ({int((ff[(ff.field == k)].papers_window > 0).sum())})" for k in fields_here])
 
 
-def fac_table(df, label: str, key: str):
+def with_kr_rank(d, field: str):
+    r = kr.xs(field, level="field")[["kr_rank", "kr_n"]] if field in kr.index.get_level_values("field") else None
+    d = d.join(r, on="name") if r is not None else d.assign(kr_rank=None, kr_n=None)
+    return d.assign(kr_rank=[f"{int(a)}위 / {int(n)}명" if pd.notna(a) else "" for a, n in zip(d.kr_rank, d.kr_n)])
+
+
+def fac_table(df, label: str, key: str, field: str):
     mx = int(df.papers.max() or 1) if len(df) else 1
     st.dataframe(
-        df, hide_index=True, width="stretch", height=min(420, 36 * len(df) + 40), key=key,
+        df.drop(columns=["kr_n"], errors="ignore"), hide_index=True, width="stretch",
+        height=min(420, 36 * len(df) + 40), key=key,
         column_config={
-            "rank": st.column_config.NumberColumn("순위", width="small"), "name": "이름",
+            "rank": st.column_config.NumberColumn("교내 순위", width="small"), "name": "이름",
+            "kr_rank": st.column_config.TextColumn(f"국내 순위 ({field})",
+                                                   help="국내 대학 교수(CSrankings) 전체 중 같은 기간·분야 논문 수 순위"),
             "papers": st.column_config.ProgressColumn(label, format="%d", min_value=0, max_value=mx),
-            "career": st.column_config.NumberColumn("경력 전체 (해당 분야)" if key != "s_fac_all" else "경력 전체"),
             "papers_window": st.column_config.NumberColumn(f"전체 분야 {f.start}–{f.end}"),
             "academic_age": st.column_config.NumberColumn("학문적 나이"), "age_source": "나이 출처",
             "main_area": "주 분야",
@@ -85,17 +94,18 @@ def fac_table(df, label: str, key: str):
 
 
 with tabs[0]:
-    d = active.rename(columns={"papers_window": "papers", "papers_career": "career"})
-    d = d.assign(rank=range(1, len(d) + 1))[["rank", "name", "papers", "career", "main_area", "academic_age", "age_source"]]
-    fac_table(d, f"논문 {f.start}–{f.end}", "s_fac_all")
+    d = active.rename(columns={"papers_window": "papers"})
+    d = with_kr_rank(d.assign(rank=range(1, len(d) + 1)), "전체")
+    fac_table(d[["rank", "kr_rank", "name", "papers", "main_area", "academic_age", "age_source"]],
+              f"논문 {f.start}–{f.end}", "s_fac_all", "전체")
 for t, k in zip(tabs[1:], fields_here):
     with t:
-        d = ff[(ff.field == k) & (ff.papers_window > 0)].sort_values(["papers_window", "papers_career"], ascending=False)
-        d = d.rename(columns={"papers_window": "papers", "papers_career": "career"}).join(info, on="name")
-        d = d.assign(rank=range(1, len(d) + 1))[["rank", "name", "papers", "career", "papers_window", "main_area",
-                                                  "academic_age", "age_source"]]
+        d = ff[(ff.field == k) & (ff.papers_window > 0)].sort_values("papers_window", ascending=False)
+        d = d.rename(columns={"papers_window": "papers"}).drop(columns=["papers_career"]).join(info, on="name")
+        d = with_kr_rank(d.assign(rank=range(1, len(d) + 1)), k)
         st.caption(f"{k} · {B.FIELDS[k][0]} — 이 분야 논문이 {f.start}–{f.end}에 1편 이상인 교수, 이 분야 논문 수 순")
-        fac_table(d, f"{k} 논문 {f.start}–{f.end}", f"s_fac_{k}")
+        fac_table(d[["rank", "kr_rank", "name", "papers", "papers_window", "main_area", "academic_age", "age_source"]],
+                  f"{k} 논문 {f.start}–{f.end}", f"s_fac_{k}", k)
 
 # ── department fields: who leads each field ──
 st.subheader("분야별 국내 순위")
