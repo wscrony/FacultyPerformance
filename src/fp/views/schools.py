@@ -18,7 +18,7 @@ scope = '+'.join(f.fields) if f.fields else ('선택 분야' if (f.areas or f.ve
 basis = (f"{f.start}–{f.end}, {scope}, {'확장 학회 포함' if f.next_tier else 'top 학회만'}. 논문 = 그 기관 현재 교수"
          "(CSrankings)가 저자로 참여한 고유 논문 수. 교수 = 이 조건에서 논문이 1편 이상인 교수만 (학생·연구원 제외).")
 
-ui.top_venue_editor()
+ui.top_venue_status()
 
 # ── KR institution ranking ──
 st.subheader("국내 기관 순위")

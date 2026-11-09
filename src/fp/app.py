@@ -114,7 +114,7 @@ def render_compare(names: list[str], kp: str, flt: metrics.Filter | None = None)
     _plot(fig, height=380, key=f"{kp}_cum")
 
 
-ui.top_venue_editor()
+ui.top_venue_status()
 tab_school, tab_search, tab_cmp, tab_status = st.tabs(["학교 비교", "교수·후보자 검색", "교수 비교", "데이터 현황"])
 
 

@@ -16,7 +16,7 @@ st.title("한국인 연구자")
 st.caption("한국인 여부는 이름·공저 기반 추정, 소속은 본인 논문의 OpenAlex 소속, 나이는 확인값 또는 추정값입니다. "
            "모든 데이터는 로컬 암호화 DB에서만 읽습니다.")
 f = ui.board_filter("p", credit=False)
-ui.top_venue_editor()
+ui.top_venue_status()
 st.caption("위 기간·분야 필터는 인재 풀, 국내 교수 실적, 해외 한국인 교수 섹션에 적용됩니다 (현재 소속·이동 차트는 전체 기준).")
 c = ui.con()
 land = B.korean_landscape(c)

@@ -365,7 +365,7 @@ def person_card(name: str, f, key: str) -> None:
                    "나이·학위 근거는 로컬 암호화 DB.")
 
 
-def top_venue_editor() -> None:
+def top_venue_editor(expanded: bool = False) -> None:
     """Expander on the first page: mark which venues count as top (saved locally, applies to every page).
     Rows = CSrankings venues ∪ the 'CS 분야 우수 학술대회 목록' gist (KIISE/BK21/KAIST/SNU/POSTECH ratings)."""
     from fp import boards as B
@@ -407,7 +407,13 @@ def top_venue_editor() -> None:
         df["avg"] = None
     df = df.sort_values(["countable", "top", "avg", "papers"], ascending=[False, False, False, False])
     n_top = int(df.top.sum())
-    with st.expander(f"⚙️ Top 학회 설정 — 현재 {n_top}개 학회를 top으로 셈 (클릭해서 바꾸기)"):
+    import contextlib
+
+    box = (contextlib.nullcontext() if expanded else
+           st.expander(f"⚙️ Top 학회 설정 — 현재 {n_top}개 학회를 top으로 셈 (클릭해서 바꾸기)"))
+    if expanded:
+        st.markdown(f"**현재 {n_top}개 학회를 top으로 셈**")
+    with box:
         st.caption("체크한 학회만 'top 학회'로 셉니다. 이 설정은 하나라서 국내 기관·한국인 연구자·검색 어느 페이지에서 "
                    "바꿔도 모든 페이지의 논문 수·순위·학문적 나이 추정에 적용됩니다. "
                    f"평가 열은 [CS 분야 우수 학술대회 목록]({topvenues.CATALOG_URL}) (정보과학회 2024 · BK21 2018 · KAIST · "
@@ -496,3 +502,23 @@ def top_venue_editor() -> None:
         n_missing = int((~df.countable).sum())
         st.markdown(f"**'논문 데이터 없음' {n_missing}개 학회** (예: SoCG, CIKM, COLT) — 지금 데이터는 CSrankings가 다루는 "
                     "학회의 DBLP 논문만 있어, 이 학회들은 전체 DBLP(약 1.1GB)를 받아 넣어야 top으로 셀 수 있습니다.")
+
+
+def top_venue_status() -> None:
+    """One line on each board: how many venues count as top, with a link to the settings page."""
+    from fp import topvenues
+
+    c = con()
+    n = c.execute("SELECT count(*) FROM venue WHERE NOT next_tier").fetchone()[0]
+    s = topvenues.load()
+    diff = []
+    if s["top"]:
+        diff.append(f"추가 {len(s['top'])}개")
+    if s["not_top"]:
+        diff.append(f"제외 {len(s['not_top'])}개")
+    a, b = st.columns([5, 1.3])
+    a.caption(f"Top 학회 기준: {n}개 학회 (CSrankings 기준" + (" 대비 " + " · ".join(diff) if diff else " 그대로") + ")")
+    try:
+        b.page_link("views/venues.py", label="Top 학회 바꾸기", icon=":material/tune:")
+    except Exception:  # page run outside st.navigation (tests, single-page run)
+        b.markdown("[Top 학회 바꾸기](/venues)")

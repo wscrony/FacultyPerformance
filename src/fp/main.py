@@ -32,6 +32,7 @@ pg = st.navigation({
         st.Page("views/people.py", title="한국인 연구자", icon=":material/groups:"),
     ],
     "탐색": [st.Page("app.py", title="검색 · 비교", icon=":material/search:")],
+    "설정": [st.Page("views/venues.py", title="Top 학회 설정", icon=":material/tune:", url_path="venues")],
 })
 st.sidebar.caption("Developed by Wook-Shin Han")
 pg.run()
