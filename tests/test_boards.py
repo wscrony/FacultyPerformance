@@ -149,3 +149,18 @@ def test_stage_view_postdoc_vs_phd_student(con):  # noqa: F811
     age.create_views(con)
     assert stage() == age.INDUSTRY
     assert dict(con.execute("SELECT person, stage FROM person_stage").fetchall()).get("Old") is None  # faculty
+
+
+def test_top_venue_choice_shadows_venue_table(con, tmp_path, monkeypatch):  # noqa: F811
+    from fp import topvenues
+
+    monkeypatch.setattr(topvenues, "FILE", tmp_path / "tv.json")
+    base = topvenues.base_venue(con)
+    v = con.execute(f"SELECT venue FROM {base} WHERE NOT next_tier LIMIT 1").fetchone()[0]
+    topvenues.save([], [v])
+    age.create_views(con)
+    assert con.execute("SELECT next_tier FROM venue WHERE venue = ?", [v]).fetchone()[0] is True
+    assert con.execute(f"SELECT next_tier FROM {base} WHERE venue = ?", [v]).fetchone()[0] is False  # DB untouched
+    topvenues.save([v], [])
+    age.create_views(con)
+    assert con.execute("SELECT next_tier FROM venue WHERE venue = ?", [v]).fetchone()[0] is False

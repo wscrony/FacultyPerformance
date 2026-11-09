@@ -63,6 +63,10 @@ def _create_cites_view(con) -> None:
 
 def create_views(con, this_year: int | None = None) -> None:
     y = this_year or date.today().year
+    if _has_table(con, "venue"):
+        from fp import topvenues
+
+        topvenues.apply(con)  # user's top-venue choice (temp table shadows main.venue)
     _ensure_author_pub(con)
     _create_cites_view(con)
     if not _has_table(con, "inst_map"):

@@ -55,11 +55,15 @@ def _root_con() -> duckdb.DuckDBPyConnection:
 
 
 def con() -> duckdb.DuckDBPyConnection:
-    """Per-session cursor (DuckDB connections aren't shared across threads); temp views are per cursor."""
-    if "cur" not in st.session_state:
+    """Per-session cursor (DuckDB connections aren't shared across threads); temp views are per cursor.
+    Rebuilt when the top-venue choice changes (another session may have saved it)."""
+    from fp import topvenues
+
+    v = topvenues.version()
+    if "cur" not in st.session_state or st.session_state.get("cur_tv") != v:
         c = _root_con().cursor()
         age.create_views(c)
-        st.session_state.cur = c
+        st.session_state.cur, st.session_state.cur_tv = c, v
     return st.session_state.cur
 
 
@@ -359,3 +363,93 @@ def person_card(name: str, f, key: str) -> None:
         )
         st.caption("논문 = 현재 화면의 기간·분야 조건. 피인용 = OpenAlex (DOI 없는 논문은 제목 일치, 빈칸 = 매칭 전/실패). "
                    "나이·학위 근거는 로컬 암호화 DB.")
+
+
+def top_venue_editor() -> None:
+    """Expander on the first page: mark which venues count as top (saved locally, applies to every page).
+    Rows = CSrankings venues ∪ the 'CS 분야 우수 학술대회 목록' gist (KIISE/BK21/KAIST/SNU/POSTECH ratings)."""
+    from fp import boards as B
+    from fp import topvenues
+
+    c = con()
+    ours = c.execute(
+        f"""SELECT v.venue, v.area, v.area_title, v.next_tier AS cur_nt, m.next_tier AS cs_nt, count(p.key) AS papers
+            FROM venue v JOIN {topvenues.base_venue(c)} m USING (venue) LEFT JOIN dblp_paper p ON p.venue = v.venue
+            GROUP BY ALL"""
+    ).df()
+    cat = topvenues.catalog(c)
+    cat = cat.drop_duplicates("dblp_key") if len(cat) else cat
+    if len(cat):
+        cat_by_v = cat.dropna(subset=["venue"]).drop_duplicates("venue").set_index("venue")
+        df = ours.join(cat_by_v[["abbr", "kiise", "bk21", "kaist", "snu", "postech", "avg"]], on="venue")
+        extra = cat[cat.venue.isna() | ~cat.venue.isin(ours.venue)].copy()
+        extra = extra.assign(venue=extra.venue.fillna(""), area=None, area_title="", cur_nt=True, cs_nt=None,
+                             papers=extra.papers.fillna(0))
+        df = pd.concat([df, extra[df.columns.intersection(extra.columns)]], ignore_index=True)
+    else:
+        df = ours
+    df["name"] = [a if isinstance(a, str) and a else v.upper() for a, v in zip(df.get("abbr", df.venue), df.venue)]
+    df["field"] = df.area.map(lambda a: B.AREA_FIELD.get(a, "기타") if isinstance(a, str) else "")
+    df["top"] = ~df.cur_nt.fillna(True).astype(bool)
+    df["csr"] = df.cs_nt.map({False: "top", True: "확장(next tier)"}).fillna("없음")
+    df["data"] = [f"{int(n):,}편" if n and v and v in set(ours.venue) else
+                  (f"{int(n):,}편 (CSrankings 외)" if n else "없음 — DBLP 받아야 함")
+                  for n, v in zip(df.papers.fillna(0), df.venue)]
+    df["countable"] = df.venue.isin(ours.venue)
+    for col in ("kiise", "bk21", "kaist", "snu", "postech"):
+        if col not in df:
+            df[col] = ""
+    if "avg" not in df:
+        df["avg"] = None
+    df = df.sort_values(["countable", "top", "avg", "papers"], ascending=[False, False, False, False])
+    n_top = int(df.top.sum())
+    with st.expander(f"⚙️ Top 학회 설정 — 현재 {n_top}개 학회를 top으로 셈 (클릭해서 바꾸기)"):
+        st.caption("체크한 학회만 'top 학회'로 셉니다 (모든 페이지의 논문 수·순위·학문적 나이 추정에 적용). "
+                   f"평가 열은 [CS 분야 우수 학술대회 목록]({topvenues.CATALOG_URL}) (정보과학회 2024 · BK21 2018 · KAIST · "
+                   "SNU · POSTECH). 저장은 이 컴퓨터의 data/top_venues.json.")
+        q = st.text_input("학회 찾기", key="tv_q", placeholder="예: SoCG, CAV, CIKM")
+        view = df[df.name.str.contains(q, case=False) | df.venue.str.contains(q, case=False)] if q else df
+        ed = st.data_editor(
+            view[["top", "name", "field", "kiise", "bk21", "kaist", "snu", "postech", "avg", "csr", "data",
+                  "venue"]].reset_index(drop=True),
+            hide_index=True, width="stretch", height=460, key=f"tv_editor_{q}",
+            disabled=["name", "field", "kiise", "bk21", "kaist", "snu", "postech", "avg", "csr", "data", "venue"],
+            column_config={
+                "top": st.column_config.CheckboxColumn("top", help="체크 = top 학회로 셈 (논문 데이터가 있는 학회만 적용)"),
+                "name": st.column_config.TextColumn("학회", width="small"), "field": "분야",
+                "kiise": "정보과학회", "bk21": "BK21 IF", "kaist": "KAIST", "snu": "SNU", "postech": "POSTECH",
+                "avg": st.column_config.NumberColumn("평균", format="%.2f", help="다섯 목록을 0–1로 정규화한 평균"),
+                "csr": "CSrankings 기준", "data": "논문 데이터", "venue": None,
+            },
+        )
+        b1, b2, _ = st.columns([1, 1, 4])
+        if b1.button("저장", type="primary", key="tv_save"):
+            cs_top = dict(zip(ours.venue, ~ours.cs_nt.astype(bool)))
+            cur = topvenues.load()
+            top, not_top = set(cur["top"]), set(cur["not_top"])
+            skipped = []
+            for v, t, nm in zip(ed.venue, ed.top, ed.name):
+                if v not in cs_top:
+                    if t:
+                        skipped.append(nm)
+                    continue
+                top.discard(v); not_top.discard(v)
+                if t and not cs_top[v]:
+                    top.add(v)
+                elif not t and cs_top[v]:
+                    not_top.add(v)
+            topvenues.save(sorted(top), sorted(not_top))
+            st.cache_data.clear()
+            if skipped:
+                st.session_state["tv_skipped"] = skipped
+            st.rerun()
+        if b2.button("CSrankings 기준으로 되돌리기", key="tv_reset"):
+            topvenues.save([], [])
+            st.cache_data.clear()
+            st.rerun()
+        if st.session_state.get("tv_skipped"):
+            st.warning("논문 데이터가 없어 아직 셀 수 없는 학회: " + ", ".join(st.session_state.pop("tv_skipped"))
+                       + " — 전체 DBLP를 받아야 합니다.")
+        n_missing = int((~df.countable).sum())
+        st.markdown(f"**'논문 데이터 없음' {n_missing}개 학회** (예: SoCG, CIKM, COLT) — 지금 데이터는 CSrankings가 다루는 "
+                    "학회의 DBLP 논문만 있어, 이 학회들은 전체 DBLP(약 1.1GB)를 받아 넣어야 top으로 셀 수 있습니다.")
