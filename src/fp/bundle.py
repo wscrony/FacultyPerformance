@@ -58,12 +58,22 @@ def export(out_dir: Path = paths.EXPORTS / "app_bundle") -> Path:
 
 def ensure(url: str) -> None:
     """Download and unpack the bundle into data/ unless it is already there (once per container)."""
-    import requests
+    import fcntl
 
     marker = paths.DATA / ".bundle_url"
     if paths.PUBLIC_DB.exists() and marker.exists() and marker.read_text() == url:
         return
     paths.DATA.mkdir(parents=True, exist_ok=True)
+    with open(paths.DATA / ".bundle.lock", "w") as lk:
+        fcntl.flock(lk, fcntl.LOCK_EX)  # other sessions wait here, then see the marker
+        if paths.PUBLIC_DB.exists() and marker.exists() and marker.read_text() == url:
+            return
+        _download(url, marker)
+
+
+def _download(url: str, marker: Path) -> None:
+    import requests
+
     part = paths.DATA / "bundle.tar.gz.part"
     with requests.get(url, stream=True, timeout=600) as r:
         r.raise_for_status()

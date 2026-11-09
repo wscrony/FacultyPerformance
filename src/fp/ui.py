@@ -59,12 +59,20 @@ def con() -> duckdb.DuckDBPyConnection:
     Rebuilt when the top-venue choice changes (another session may have saved it)."""
     from fp import topvenues
 
+    import threading
+
+    # one cursor per (session, script-run thread): a rerun can start while the previous run's query is still
+    # executing, and a DuckDB cursor refuses concurrent calls (ResourceInUseException)
     v = topvenues.version()
-    if "cur" not in st.session_state or st.session_state.get("cur_tv") != v:
+    k = ("cur", threading.get_ident(), v)
+    curs = st.session_state.setdefault("_curs", {})
+    if k not in curs:
+        for old in [x for x in curs if x[1] == k[1]]:  # stale top-venue version for this thread
+            curs.pop(old, None)
         c = _root_con().cursor()
         age.create_views(c)
-        st.session_state.cur, st.session_state.cur_tv = c, v
-    return st.session_state.cur
+        curs[k] = c
+    return curs[k]
 
 
 def require_db():
