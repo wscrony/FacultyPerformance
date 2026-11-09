@@ -390,7 +390,8 @@ def top_venue_editor() -> None:
     else:
         df = ours
     df["name"] = [a if isinstance(a, str) and a else v.upper() for a, v in zip(df.get("abbr", df.venue), df.venue)]
-    df["field"] = df.area.map(lambda a: B.AREA_FIELD.get(a, "기타") if isinstance(a, str) else "")
+    df["field"] = [B.VENUE_FIELD.get(v) or (B.AREA_FIELD.get(a, "기타") if isinstance(a, str) else "")
+                   for v, a in zip(df.venue, df.area)]
     df["top"] = ~df.cur_nt.fillna(True).astype(bool)
     df["csr"] = df.cs_nt.map({False: "top", True: "확장(next tier)"}).fillna("없음")
     df.loc[df.get("extra", pd.Series(False, index=df.index)).fillna(False).astype(bool), "csr"] = "CSrankings 외"

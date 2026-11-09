@@ -310,7 +310,7 @@ FIELDS = {
 }
 AREA_FIELD = {a: k for k, (_, _, areas) in FIELDS.items() for a in areas}
 # venue-level exceptions: CSrankings files KDD under 'ML'; here it is data mining
-VENUE_FIELD = {"kdd": "DM"}
+VENUE_FIELD = {"kdd": "DM", "cikm": "DM"}  # user decisions: KDD, CIKM are Data Mining & IR
 
 
 def field_sql(v: str = "v") -> str:
