@@ -312,3 +312,18 @@ def kr_field_matrix(con, f: BF):
         """,
         p,
     ).df()
+
+
+def school_faculty_fields(con, school: str, f: BF):
+    """Per faculty × department field: papers in the window and over the career (one school)."""
+    return con.execute(
+        f"""
+        WITH fac AS (SELECT DISTINCT name FROM cs_faculty WHERE affiliation = ?)
+        SELECT a.name, {_FIELD_SQL} AS field,
+               count(*) FILTER (WHERE p.year BETWEEN ? AND ?) AS papers_window, count(*) AS papers_career
+        FROM dblp_authorship a JOIN dblp_paper p USING (key) JOIN venue v ON v.venue = p.venue
+        WHERE a.name IN (SELECT name FROM fac) AND NOT v.next_tier
+        GROUP BY 1, 2
+        """,
+        [school, f.start, f.end],
+    ).df()

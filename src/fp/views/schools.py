@@ -64,18 +64,39 @@ with c2:
         fig.update_xaxes(title="학문적 나이")
         ui.plot(fig, height=420, key="s_age")
 
-st.dataframe(
-    active, hide_index=True, width="stretch", height=380,
-    column_config={
-        "name": "이름", "academic_age": st.column_config.NumberColumn("학문적 나이"),
-        "age_source": "나이 출처",
-        "papers_window": st.column_config.ProgressColumn(
-            f"논문 {f.start}–{f.end}", format="%d", min_value=0,
-            max_value=int(active.papers_window.max() or 1)),
-        "papers_career": st.column_config.NumberColumn("경력 전체 논문"),
-        "main_area": "주 분야",
-    },
-)
+ff = B.school_faculty_fields(c, school, f)
+info = active.set_index("name")[["academic_age", "age_source", "papers_window", "main_area"]]
+fields_here = [k for k in B.FIELDS if k in set(ff[ff.papers_window > 0].field)]
+tabs = st.tabs(["전체"] + [f"{k} ({int((ff[(ff.field == k)].papers_window > 0).sum())})" for k in fields_here])
+
+
+def fac_table(df, label: str, key: str):
+    mx = int(df.papers.max() or 1) if len(df) else 1
+    st.dataframe(
+        df, hide_index=True, width="stretch", height=min(420, 36 * len(df) + 40), key=key,
+        column_config={
+            "rank": st.column_config.NumberColumn("순위", width="small"), "name": "이름",
+            "papers": st.column_config.ProgressColumn(label, format="%d", min_value=0, max_value=mx),
+            "career": st.column_config.NumberColumn("경력 전체 (해당 분야)" if key != "s_fac_all" else "경력 전체"),
+            "papers_window": st.column_config.NumberColumn(f"전체 분야 {f.start}–{f.end}"),
+            "academic_age": st.column_config.NumberColumn("학문적 나이"), "age_source": "나이 출처",
+            "main_area": "주 분야",
+        },
+    )
+
+
+with tabs[0]:
+    d = active.rename(columns={"papers_window": "papers", "papers_career": "career"})
+    d = d.assign(rank=range(1, len(d) + 1))[["rank", "name", "papers", "career", "main_area", "academic_age", "age_source"]]
+    fac_table(d, f"논문 {f.start}–{f.end}", "s_fac_all")
+for t, k in zip(tabs[1:], fields_here):
+    with t:
+        d = ff[(ff.field == k) & (ff.papers_window > 0)].sort_values(["papers_window", "papers_career"], ascending=False)
+        d = d.rename(columns={"papers_window": "papers", "papers_career": "career"}).join(info, on="name")
+        d = d.assign(rank=range(1, len(d) + 1))[["rank", "name", "papers", "career", "papers_window", "main_area",
+                                                  "academic_age", "age_source"]]
+        st.caption(f"{k} · {B.FIELDS[k][0]} — 이 분야 논문이 {f.start}–{f.end}에 1편 이상인 교수, 이 분야 논문 수 순")
+        fac_table(d, f"{k} 논문 {f.start}–{f.end}", f"s_fac_{k}")
 
 # ── department fields: who leads each field ──
 st.subheader("분야별 국내 순위")
