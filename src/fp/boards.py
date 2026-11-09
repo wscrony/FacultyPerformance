@@ -397,3 +397,22 @@ def field_venues(con, fields: list[str], next_tier: bool = False) -> list[str]:
         f"SELECT v.venue FROM venue v WHERE ({_FIELD_SQL}) IN (SELECT unnest(?)) AND (? OR NOT v.next_tier) ORDER BY 1",
         [fields, next_tier],
     ).fetchall()]
+
+
+def institution_faculty(con, institution: str, f: BF):
+    """Faculty counted for an institution under the filter (>= 1 paper), with papers and main field."""
+    ensure_pinst(con)
+    w, prm = f.where("x")
+    df = con.execute(
+        f"""
+        WITH t AS (SELECT x.name, {_FIELD_SQL} AS field, count(DISTINCT x.key) AS n
+                   FROM pinst x JOIN venue v ON v.venue = x.venue
+                   WHERE {w} AND {f.credit_sql()} AND x.institution = ? GROUP BY 1, 2)
+        SELECT name, sum(n)::INTEGER AS papers, arg_max(field, n) AS main_field, max(n) AS main_papers,
+               string_agg(field || ' ' || n, ' · ' ORDER BY n DESC) AS by_field
+        FROM t GROUP BY 1 ORDER BY papers DESC, name
+        """,
+        prm + [institution],
+    ).df()
+    df.insert(0, "no", range(1, len(df) + 1))
+    return df

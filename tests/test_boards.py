@@ -103,3 +103,12 @@ def test_per_faculty_rank_counts_only_faculty(con):  # noqa: F811
     # faculty authors at A in the fixture papers: Old, Young, Mid (Minji Kim is not faculty → not counted)
     assert a.faculty == 3 and abs(a.per_faculty - a.papers / 3) < 1e-9
     assert pd.isna(inst.set_index("institution").loc["Z"].rank_norm)  # 1 faculty < MIN_FACULTY_NORM
+
+
+def test_institution_faculty_matches_faculty_count(con):  # noqa: F811
+    age.create_views(con)
+    f = B.BF(start=2000, end=2030)
+    inst, _ = B.institution_share(con, f, 100)
+    fl = B.institution_faculty(con, "A", f)
+    assert len(fl) == inst.set_index("institution").loc["A"].faculty
+    assert "Minji Kim" not in set(fl.name)  # non-faculty never listed

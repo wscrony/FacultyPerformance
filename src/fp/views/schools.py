@@ -24,6 +24,7 @@ kr_tab = inst[inst.country == "kr"].sort_values("papers", ascending=False)
 st.dataframe(
     kr_tab[["institution", "rank", "papers", "faculty", "per_faculty", "rank_norm"]],
     hide_index=True, width="stretch", height=min(460, 36 * len(kr_tab) + 40), key="s_rank_tab",
+    on_select="rerun", selection_mode="single-row",
     column_config={
         "institution": "기관",
         "rank": st.column_config.NumberColumn("세계 순위 (논문 수)", format="%d위"),
@@ -36,7 +37,26 @@ st.dataframe(
             help=f"교수 {B.MIN_FACULTY_NORM}명 이상 기관 중 1인당 논문 수 순위 (미만이면 빈칸)"),
     },
 )
-st.caption(basis + f" 1인당 순위는 이 조건의 교수가 {B.MIN_FACULTY_NORM}명 이상인 전 세계 기관끼리 비교합니다.")
+st.caption(basis + f" 1인당 순위는 이 조건의 교수가 {B.MIN_FACULTY_NORM}명 이상인 전 세계 기관끼리 비교합니다. "
+           "행을 클릭하면 교수 수에 포함된 교수 명단이 나옵니다.")
+sel = st.session_state.get("s_rank_tab")
+rows_sel = sel.selection.rows if sel is not None and hasattr(sel, "selection") else []
+if rows_sel:
+    pick = kr_tab.iloc[rows_sel[0]]
+    fl = B.institution_faculty(c, pick.institution, f)
+    with st.container(border=True):
+        st.markdown(f"**{pick.institution}** · 교수 {len(fl)}명 · 논문 {int(pick.papers):,}편 ({scope}, {f.start}–{f.end})")
+        st.dataframe(
+            fl, hide_index=True, width="stretch", height=min(520, 36 * len(fl) + 40), key="s_rank_fac",
+            column_config={
+                "no": st.column_config.NumberColumn("#", width="small"), "name": "교수",
+                "papers": st.column_config.ProgressColumn("논문", format="%d", min_value=0,
+                                                          max_value=int(fl.papers.max() or 1)),
+                "main_field": "주 분야", "main_papers": "주 분야 논문", "by_field": "분야별 논문",
+            },
+        )
+        st.caption("교수 = CSrankings 명단의 현재 소속 기준, 이 조건에서 논문이 1편 이상인 사람. 개인 논문 수의 합은 "
+                   "교수끼리의 공저 때문에 기관 논문 수보다 클 수 있습니다.")
 
 # ── school profile ──
 st.subheader("학교 프로필")
