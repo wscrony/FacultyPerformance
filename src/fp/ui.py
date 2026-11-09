@@ -248,7 +248,10 @@ def person_card(name: str, f, key: str) -> None:
     from fp import links
 
     mf = _as_filter(f)
-    c = con()
+    # own cursor: a click reruns the script while the previous run may still be querying the session cursor;
+    # sharing one DuckDB cursor across those threads returned empty results (Juho Kim 0001 → 0 papers)
+    c = _root_con().cursor()
+    age.create_views(c)
     pa = c.execute("""SELECT a.affiliation, a.phd_year, a.phd_institution, a.age_source, a.academic_age,
                              a.birth_year, a.birth_source, a.first_top_year, r.role, s.stage
                       FROM person_age a LEFT JOIN person_role r USING (person)
