@@ -369,3 +369,24 @@ def test_app_refuses_network_without_password(monkeypatch):
     monkeypatch.delenv("FP_APP_PASSWORD", raising=False)
     r = CliRunner().invoke(app, ["app", "--host", "0.0.0.0"])
     assert r.exit_code == 2
+
+
+def test_title_citation_match_takes_max_of_exact_versions(monkeypatch):
+    from fp.ingest import citations
+
+    class R:
+        status_code, ok, headers = 200, True, {}
+
+        def json(self):
+            return {"results": [
+                {"id": "https://openalex.org/W1", "display_name": "A Simple Unified Framework for Detecting X", "cited_by_count": 900},
+                {"id": "https://openalex.org/W2", "display_name": "A simple unified framework for detecting X.", "cited_by_count": 1258},
+                {"id": "https://openalex.org/W3", "display_name": "A Simple Unified Framework for Detecting Y", "cited_by_count": 5000},
+            ]}
+
+    class S:
+        def get(self, *a, **k):
+            return R()
+
+    ids, cites = citations.fetch_title("A Simple Unified Framework for Detecting X.", 2018, S(), None)
+    assert cites == 1258 and ids == "W1,W2"  # max over versions; non-identical title ignored

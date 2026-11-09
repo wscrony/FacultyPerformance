@@ -38,13 +38,20 @@ def _has_table(con, name: str) -> bool:
 
 
 def _create_cites_view(con) -> None:
-    """person_cites: career citations of the person's top-venue DOI papers (OpenAlex), + DOI coverage."""
+    """paper_cites: OpenAlex citations per dblp paper — by DOI, else by exact title match (NeurIPS/ICLR/… have
+    no DOI). person_cites: career citations of the person's top-venue papers, + coverage."""
     if all(_has_table(con, t) for t in ("oa_cites", "dblp_paper", "dblp_authorship")):
+        tj, tc = (("LEFT JOIN oa_title_cites t ON t.key = p.key", "t.cited_by")
+                  if _has_table(con, "oa_title_cites") else ("", "NULL::INTEGER"))
         con.execute(
-            """CREATE OR REPLACE TEMP VIEW person_cites AS
+            f"""CREATE OR REPLACE TEMP VIEW paper_cites AS
+               SELECT p.key, coalesce(c.cited_by, {tc}) AS cited_by,
+                      CASE WHEN c.cited_by IS NOT NULL THEN 'doi' WHEN {tc} IS NOT NULL THEN 'title' END AS via
+               FROM dblp_paper p LEFT JOIN oa_cites c ON c.doi = p.doi {tj};
+            CREATE OR REPLACE TEMP VIEW person_cites AS
                SELECT a.name AS person, sum(c.cited_by)::BIGINT AS cites,
                       count(c.cited_by) AS cited_papers, count(*) AS papers
-               FROM dblp_authorship a JOIN dblp_paper p USING (key) LEFT JOIN oa_cites c ON c.doi = p.doi
+               FROM dblp_authorship a LEFT JOIN paper_cites c USING (key)
                GROUP BY 1"""
         )
     else:
@@ -253,7 +260,7 @@ def candidates(
     if all(_has_table(con, t) for t in ("oa_cites", "dblp_paper", "dblp_authorship")):
         wcite_sql = f"""SELECT a.name AS person, sum(c.cited_by)::BIGINT AS cites
             FROM dblp_authorship a JOIN dblp_paper p USING (key) JOIN venue v ON v.venue = p.venue
-            JOIN oa_cites c ON c.doi = p.doi WHERE {win} GROUP BY 1"""
+            JOIN paper_cites c ON c.key = p.key WHERE {win} GROUP BY 1"""
         cparams = list(wparams)
     else:
         wcite_sql, cparams = "SELECT NULL::VARCHAR AS person, NULL::BIGINT AS cites WHERE false", []
@@ -317,16 +324,17 @@ def person_papers(con, name: str, f: metrics.Filter):
     w, prm = _pub_where(f, "p")
     from fp.boards import field_sql
 
-    cites = "c.cited_by" if con.execute(
-        "SELECT count(*) FROM duckdb_tables() WHERE table_name = 'oa_cites'").fetchone()[0] else "NULL::INTEGER"
-    join = "LEFT JOIN oa_cites c ON c.doi = p.doi" if cites != "NULL::INTEGER" else ""
+    _create_cites_view(con)
+    cites = "c.cited_by" if _has_table(con, "oa_cites") else "NULL::INTEGER"
+    join = "LEFT JOIN paper_cites c ON c.key = p.key" if cites != "NULL::INTEGER" else ""
     return con.execute(
         f"""
         SELECT p.year, upper(p.venue) AS venue, {field_sql('v')} AS field, p.title,
                CASE WHEN a.pos = 1 THEN '1저자' WHEN a.pos = p.n_authors AND p.n_authors > 1 THEN '마지막'
                     ELSE a.pos || '/' || p.n_authors END AS position,
                {cites} AS cites,
-               CASE WHEN p.doi IS NOT NULL THEN 'https://doi.org/' || p.doi END AS link
+               CASE WHEN p.doi IS NOT NULL THEN 'https://doi.org/' || p.doi
+                    ELSE 'https://dblp.org/rec/' || p.key END AS link
         FROM dblp_authorship a JOIN dblp_paper p USING (key) JOIN venue v ON v.venue = p.venue {join}
         WHERE a.name = ? AND {w}
         ORDER BY p.year DESC, cites DESC NULLS LAST, p.title

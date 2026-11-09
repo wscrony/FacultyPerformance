@@ -218,11 +218,12 @@ with tab_search:
                     "year": st.column_config.NumberColumn("연도", format="%d", width="small"),
                     "venue": "학회", "field": "분야", "title": st.column_config.TextColumn("제목", width="large"),
                     "position": "저자 위치",
-                    "cites": st.column_config.TextColumn("피인용", help="OpenAlex cited_by (DOI 있는 논문만)"),
-                    "link": st.column_config.LinkColumn("DOI", display_text="열기"),
+                    "cites": st.column_config.TextColumn("피인용", help="OpenAlex cited_by — DOI로, DOI가 없으면(NeurIPS 등) 제목 일치로 매칭"),
+                    "link": st.column_config.LinkColumn("링크", display_text="열기", help="DOI, 없으면 dblp"),
                 },
             )
-            st.caption("피인용 = OpenAlex 기준. NeurIPS·ICML·ICLR·USENIX 등 DOI가 없는 학회 논문은 피인용이 비어 있습니다.")
+            st.caption("피인용 = OpenAlex 기준. DOI가 없는 논문(NeurIPS·ICLR 등)은 제목이 정확히 일치하는 OpenAlex 논문의 "
+                       "피인용(arXiv·학회 버전 중 큰 값)을 씁니다. 빈칸 = 매칭 실패 또는 아직 조회 전.")
     else:
         st.caption("이름(또는 행의 아무 칸)을 클릭하면 그 사람의 논문 목록과 피인용 수가 여기에 나옵니다.")
     if scope != "kr":

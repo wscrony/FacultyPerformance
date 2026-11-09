@@ -7,7 +7,7 @@ import traceback
 from datetime import date
 from typing import Callable
 
-STEPS = ["csrankings", "dblp", "korean", "korean_verify", "orcid", "homepage", "degree_llm", "openalex", "inst_types", "citations", "snapshot", "report"]
+STEPS = ["csrankings", "dblp", "korean", "korean_verify", "orcid", "homepage", "degree_llm", "openalex", "inst_types", "citations", "title_citations", "snapshot", "report"]
 
 
 def run_all(log: Callable[[str], None] = print, skip: set[str] | None = None, use_llm: bool = True) -> dict:
@@ -59,6 +59,7 @@ def run_all(log: Callable[[str], None] = print, skip: set[str] | None = None, us
         step("openalex", lambda: openalex.update(con))
         step("inst_types", lambda: institutions.fetch_types(con))
         step("citations", lambda: citations.update(con))
+        step("title_citations", lambda: citations.update_titles(con))
         step("snapshot", lambda: {"run_id": report.snapshot(con, out)})
         step("report", lambda: {"path": report.write(con)})
     finally:

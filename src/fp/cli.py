@@ -382,6 +382,18 @@ def update_openalex(
     console.print(stats)
 
 
+@update_app.command("title-citations")
+def update_title_citations(force: bool = typer.Option(False), limit: Optional[int] = typer.Option(None)):
+    """Citations for papers without a DOI (NeurIPS/ICLR/...), by exact title match on OpenAlex."""
+    from fp import pii
+    from fp.ingest import citations
+
+    con = pii.connect()
+    with _progress("OpenAlex title citations") as cb:
+        stats = citations.update_titles(con, force=force, limit=limit, progress=cb)
+    typer.echo(stats)
+
+
 @update_app.command("citations")
 def update_citations(force: bool = typer.Option(False), limit: Optional[int] = typer.Option(None, help="max DOIs")):
     """Citation counts (OpenAlex, 100 DOIs/request) for top-venue papers of tracked people."""
