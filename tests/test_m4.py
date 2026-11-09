@@ -341,3 +341,31 @@ def test_llm_degree_ranked_below_confirmed_and_shown_as_estimate(con):  # noqa: 
     con.execute("INSERT INTO pii.degree (person, degree, year, source, confidence) VALUES (?, 'phd', 1999, 'orcid', 1)", [a])
     age.create_views(con)
     assert con.execute("SELECT age_source, phd_year FROM person_age WHERE person = ?", [a]).fetchone() == ("orcid", 1999)
+
+
+def test_key_file_roundtrip(tmp_path, monkeypatch):
+    import os
+
+    from fp import pii
+
+    kf = tmp_path / "k" / "pii.key"
+    monkeypatch.delenv("FP_PII_KEY", raising=False)
+    monkeypatch.setenv("FP_PII_KEY_FILE", str(kf))
+    pii.write_key_file("ab" * 32)
+    assert oct(kf.stat().st_mode & 0o777) == "0o600"
+    assert pii._get_key() == "ab" * 32
+    os.chmod(kf, 0o644)
+    import pytest
+
+    with pytest.raises(RuntimeError, match="chmod 600"):
+        pii._get_key()
+
+
+def test_app_refuses_network_without_password(monkeypatch):
+    from typer.testing import CliRunner
+
+    from fp.cli import app
+
+    monkeypatch.delenv("FP_APP_PASSWORD", raising=False)
+    r = CliRunner().invoke(app, ["app", "--host", "0.0.0.0"])
+    assert r.exit_code == 2

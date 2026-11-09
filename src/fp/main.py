@@ -4,6 +4,27 @@ import streamlit as st
 
 st.set_page_config(page_title="Faculty Performance", page_icon="📊", layout="wide")
 
+
+def _gate() -> None:
+    """Password gate when FP_APP_PASSWORD is set (required for `fp app --host 0.0.0.0`)."""
+    import hmac
+    import os
+
+    pw = os.environ.get("FP_APP_PASSWORD")
+    if not pw or st.session_state.get("_authed"):
+        return
+    st.title("Faculty Performance")
+    got = st.text_input("비밀번호", type="password")
+    if got and hmac.compare_digest(got, pw):
+        st.session_state["_authed"] = True
+        st.rerun()
+    elif got:
+        st.error("비밀번호가 틀렸습니다.")
+    st.stop()
+
+
+_gate()
+
 pg = st.navigation({
     "분석 보드": [
         # 세계 속 한국 (views/world.py) hidden by user request; file kept

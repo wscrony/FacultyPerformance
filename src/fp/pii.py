@@ -77,10 +77,59 @@ CREATE TABLE IF NOT EXISTS pii.forget (
 """
 
 
+KEY_FILE_DEFAULT = "~/.config/faculty-performance/pii.key"
+
+
+def _key_file():
+    from pathlib import Path
+
+    return Path(os.environ.get("FP_PII_KEY_FILE") or KEY_FILE_DEFAULT).expanduser()
+
+
+def _read_key_file() -> str | None:
+    """Key file for servers without a macOS Keychain. Must be private (mode 600) — refuse otherwise."""
+    kf = _key_file()
+    if not kf.exists():
+        return None
+    if os.name == "posix" and kf.stat().st_mode & 0o077:
+        raise RuntimeError(f"{kf} is readable by other users; run: chmod 600 {kf}")
+    return kf.read_text().strip() or None
+
+
+def write_key_file(key: str, path=None):
+    from pathlib import Path
+
+    kf = Path(path).expanduser() if path else _key_file()
+    kf.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(kf, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as fh:
+        fh.write(key + "\n")
+    os.chmod(kf, 0o600)
+    return kf
+
+
+def keychain_key() -> str | None:
+    if not shutil.which("security"):
+        return None
+    r = subprocess.run(["security", "find-generic-password", "-s", KEYCHAIN_SERVICE, "-a", KEYCHAIN_ACCOUNT, "-w"],
+                       capture_output=True, text=True)
+    return r.stdout.strip() if r.returncode == 0 and r.stdout.strip() else None
+
+
 def _get_key() -> str:
+    """Key lookup: FP_PII_KEY env → key file (FP_PII_KEY_FILE or ~/.config/faculty-performance/pii.key)
+    → macOS Keychain. A new key is only generated when no pii.duckdb exists yet."""
     env = os.environ.get("FP_PII_KEY")  # tests / non-macOS
     if env:
         return env
+    fk = _read_key_file()
+    if fk:
+        return fk
+    if not shutil.which("security"):
+        if paths.PII_DB.exists():
+            raise RuntimeError(f"pii.duckdb is encrypted: put its key in {_key_file()} (chmod 600) "
+                               "or FP_PII_KEY. On the original Mac: fp pii export-key")
+        raise RuntimeError("macOS `security` not found; set FP_PII_KEY or create a key file")
     if not shutil.which("security"):
         raise RuntimeError("macOS `security` not found; set FP_PII_KEY")
     r = subprocess.run(

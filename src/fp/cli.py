@@ -19,6 +19,36 @@ update_app = typer.Typer(no_args_is_help=True, help="Fetch sources and refresh t
 app.add_typer(update_app, name="update")
 pii_app = typer.Typer(no_args_is_help=True, help="Local encrypted personal-data store (age, degrees).")
 app.add_typer(pii_app, name="pii")
+
+
+@pii_app.command("export-key")
+def pii_export_key(to: str = typer.Argument(..., help="file to write (created with mode 600)")):
+    """Copy the pii.duckdb key from this Mac's Keychain to a private file, to move it to a server.
+    Transfer it securely (scp/USB/password manager), never by e-mail or chat; delete the copy afterwards."""
+    from fp import pii
+
+    key = pii.keychain_key()
+    if not key:
+        typer.echo("no key in the Keychain", err=True)
+        raise typer.Exit(1)
+    typer.echo(f"wrote {pii.write_key_file(key, to)} (mode 600)")
+
+
+@pii_app.command("import-key")
+def pii_import_key(src: str = typer.Argument(..., help="key file from `fp pii export-key`")):
+    """Install a key on this machine (default key file; on macOS also usable via Keychain)."""
+    from pathlib import Path
+
+    from fp import pii
+
+    key = Path(src).expanduser().read_text().strip()
+    if len(key) != 64:
+        typer.echo("not a pii key (expected 64 hex chars)", err=True)
+        raise typer.Exit(1)
+    kf = pii.write_key_file(key)
+    con = pii.connect(read_only=True)  # verifies the key opens the DB
+    n = con.execute("SELECT count(*) FROM pii.affiliation").fetchone()[0]
+    typer.echo(f"installed {kf} (mode 600); pii.duckdb opens ({n:,} affiliation rows)")
 console = Console()
 
 THIS_YEAR = date.today().year
@@ -180,16 +210,24 @@ def compare(
 
 
 @app.command("app")
-def run_app(port: int = typer.Option(8501)):
-    """Open the local dashboard (bound to 127.0.0.1 only; usage stats off)."""
+def run_app(
+    port: int = typer.Option(8501),
+    host: str = typer.Option("127.0.0.1", help="0.0.0.0 to serve other computers (requires FP_APP_PASSWORD)"),
+):
+    """Open the dashboard. Local only by default; serving on a network requires a login password."""
+    import os
     import subprocess
     import sys
     from pathlib import Path
 
+    if host not in ("127.0.0.1", "localhost", "::1") and not os.environ.get("FP_APP_PASSWORD"):
+        typer.echo("Refusing to serve on the network without a password (personal data). "
+                   "Set FP_APP_PASSWORD, or use 127.0.0.1 behind an SSH tunnel / authenticating proxy.", err=True)
+        raise typer.Exit(2)
     script = Path(__file__).with_name("main.py")
     subprocess.run([
         sys.executable, "-m", "streamlit", "run", str(script),
-        "--server.address", "127.0.0.1", "--server.port", str(port),
+        "--server.address", host, "--server.port", str(port),
         "--server.headless", "true", "--browser.gatherUsageStats", "false",
     ])
 

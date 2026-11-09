@@ -40,3 +40,17 @@ fp schedule status | uninstall
 - 재조회 주기: ORCID 90일, OpenAlex 소속 180일, 피인용 30일, LLM 한국인 판별은 캐시 재사용
 - OpenAlex 키(선택): `security add-generic-password -s FacultyPerformance -a openalex -w <key>`
 - 기관명 매핑(inst_map): OpenAlex 기관명 → CSrankings 학교명 (정확 일치 / 캠퍼스·병원 접미어 / 양쪽 명단 교수로 학습)
+
+## 다른 컴퓨터에서 서비스하기
+
+`data/pii.duckdb`는 암호화되어 있고 키는 이 Mac의 키체인에만 있습니다. 서버에서 쓰려면 키를 키 파일로 옮깁니다.
+
+1. 이 Mac: `fp pii export-key ~/pii.key` (권한 600 파일 생성)
+2. 서버로 복사: 코드 + `data/public.duckdb` + `data/pii.duckdb` + 키 파일 (`scp`/`rsync`, 메일·메신저 금지)
+3. 서버: `uv sync && .venv/bin/fp pii import-key ~/pii.key && rm ~/pii.key`
+   (키는 `~/.config/faculty-performance/pii.key`, 권한 600에 저장. 다른 위치는 `FP_PII_KEY_FILE`)
+4. 서버 실행: `FP_APP_PASSWORD='<비밀번호>' .venv/bin/fp app --host 0.0.0.0 --port 8501`
+   비밀번호 없이 네트워크에 열면 실행을 거부합니다. 가능하면 HTTPS 리버스 프록시(또는 VPN·SSH 터널) 뒤에 두세요.
+
+데이터 갱신(`fp update all`)은 이 Mac에서 하고, 끝나면 두 `.duckdb` 파일을 서버에 다시 복사한 뒤 앱을 재시작합니다
+(실행 중인 앱이 DB를 잠그므로 복사 전에 서버 앱을 멈춥니다).
