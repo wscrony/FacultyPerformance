@@ -178,7 +178,7 @@ with tab_search:
                 "first_au", "last_au", "cites", "cites_all", "cohort_pctl", "cohort_n", "age_src"]]
     st.dataframe(
         view, hide_index=True, width="stretch", height=420, key="search_tab",
-        on_select="rerun", selection_mode="single-row",
+        on_select="rerun", selection_mode=["single-row", "single-cell"],
         column_config={
             "rank": st.column_config.NumberColumn("순위", help="선택한 순위 기준으로 매긴 검색 결과 내 순위"),
             "age": st.column_config.NumberColumn(
@@ -200,7 +200,9 @@ with tab_search:
         },
     )
     sel = st.session_state.get("search_tab")
-    picked_rows = sel.selection.rows if sel is not None and hasattr(sel, "selection") else []
+    picked_rows = []
+    if sel is not None and hasattr(sel, "selection"):  # a row checkbox, or any cell (e.g. the name) in that row
+        picked_rows = list(sel.selection.get("rows") or []) or [c[0] for c in (sel.selection.get("cells") or [])]
     if picked_rows and picked_rows[0] < len(view):
         pr = view.iloc[picked_rows[0]]
         pp = age.person_papers(con(), pr["name"], G)
@@ -222,7 +224,7 @@ with tab_search:
             )
             st.caption("피인용 = OpenAlex 기준. NeurIPS·ICML·ICLR·USENIX 등 DOI가 없는 학회 논문은 피인용이 비어 있습니다.")
     else:
-        st.caption("행을 클릭하면 그 사람의 논문 목록과 피인용 수가 여기에 나옵니다.")
+        st.caption("이름(또는 행의 아무 칸)을 클릭하면 그 사람의 논문 목록과 피인용 수가 여기에 나옵니다.")
     if scope != "kr":
         st.caption("명단 외 인물의 소속은 본인 최근 논문의 OpenAlex 소속(‘소속 연도’ 기준)입니다. "
                    "한국인 여부는 이름·공저 기반 추정입니다.")
