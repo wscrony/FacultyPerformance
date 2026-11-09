@@ -180,9 +180,13 @@ def update(
             out.append((person, year, inst["name"], inst["country"], inst["ror"], doi))
     con.execute("BEGIN")
     con.execute("DELETE FROM pii.affiliation WHERE person IN (SELECT unnest(?))", [people])
-    con.executemany(
-        "INSERT INTO pii.affiliation (person, year, institution, country, ror, doi, source) "
-        "VALUES (?, ?, ?, ?, ?, ?, 'openalex')", out)
+    if out:
+        con.executemany(
+            "INSERT INTO pii.affiliation (person, year, institution, country, ror, doi, source) "
+            "VALUES (?, ?, ?, ?, ?, ?, 'openalex')", out)
     con.execute("COMMIT")
     stats.update({"people_with_affiliation": len({o[0] for o in out}), "people_matched": len(matched)})
+    from fp import institutions
+
+    stats["inst_map"] = institutions.build(con)
     return stats

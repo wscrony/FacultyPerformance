@@ -56,6 +56,9 @@ def create_views(con, this_year: int | None = None) -> None:
     y = this_year or date.today().year
     _ensure_author_pub(con)
     _create_cites_view(con)
+    if not _has_table(con, "inst_map"):
+        con.execute("CREATE TEMP TABLE IF NOT EXISTS inst_map (oa_name VARCHAR, institution VARCHAR, "
+                    "method VARCHAR, support INTEGER)")
     con.execute(
         f"""
     CREATE OR REPLACE TEMP VIEW deg_best AS
@@ -92,7 +95,8 @@ def create_views(con, this_year: int | None = None) -> None:
 
     CREATE OR REPLACE TEMP VIEW person_role AS
     SELECT b.name AS person,
-           coalesce(b.affiliation, ca.institution) AS affiliation,
+           coalesce(b.affiliation, im.institution, ca.institution) AS affiliation,
+           ca.institution AS affil_raw,
            coalesce(i.country, ca.country) AS country,
            CASE WHEN i.country = 'kr' THEN 'KR faculty'
                 WHEN b.affiliation IS NOT NULL THEN 'faculty abroad'
@@ -105,6 +109,7 @@ def create_views(con, this_year: int | None = None) -> None:
     FROM person_base b
     LEFT JOIN institution i ON i.institution = b.affiliation
     LEFT JOIN cur_affil ca ON ca.person = b.name
+    LEFT JOIN inst_map im ON im.oa_name = ca.institution
     LEFT JOIN pii.korean k ON k.person = b.name;
 
     CREATE OR REPLACE TEMP VIEW person_age AS

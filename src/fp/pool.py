@@ -172,10 +172,11 @@ def classify(
 
     con.execute("BEGIN")
     con.execute("DELETE FROM pii.korean WHERE method <> 'manual'")
-    con.executemany(
-        "INSERT INTO pii.korean (person, is_korean, score, method, reason) VALUES (?, ?, ?, ?, ?)",
-        [(n, *v) for n, v in decided.items()],
-    )
+    if decided:
+        con.executemany(
+            "INSERT INTO pii.korean (person, is_korean, score, method, reason) VALUES (?, ?, ?, ?, ?)",
+            [(n, *v) for n, v in decided.items()],
+        )
     con.execute("COMMIT")
     vals = list(decided.values())
     return {

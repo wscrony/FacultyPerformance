@@ -220,3 +220,20 @@ def test_citations_update_and_budget_stop(con):  # noqa: F811
     rows, cols = age.candidates(con, metrics.Filter(start=2016, end=2026), scope="korean")
     r = {row[0]: dict(zip(cols, row)) for row in rows}["Minji Kim"]
     assert r["cites"] == 90 * 2 + 50 * 1 and r["cited_papers"] == 140 and r["top_papers"] == 151
+
+
+def test_institution_mapping(con):  # noqa: F811
+    from fp import institutions
+
+    assert institutions.norm("The University of Texas at Austin") == "university of texas at austin"
+    con.executemany("INSERT INTO institution VALUES (?, 'x', ?, NULL)",
+                    [("Purdue University", "us"), ("Korea University", "kr")])
+    con.executemany("INSERT INTO pii.affiliation (person, year, institution, country) VALUES (?, 2024, ?, ?)",
+                    [("p1", "Purdue University West Lafayette", "us"),
+                     ("p2", "Korea University of Technology and Education", "kr"),
+                     ("p3", "The Korea University", "kr")])
+    institutions.build(con)
+    m = dict(con.execute("SELECT oa_name, institution FROM inst_map").fetchall())
+    assert m["Purdue University West Lafayette"] == "Purdue University"
+    assert m["The Korea University"] == "Korea University"
+    assert "Korea University of Technology and Education" not in m

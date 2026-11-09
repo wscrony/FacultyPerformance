@@ -145,7 +145,7 @@ with tab_search:
     scope = st.radio("검색 범위", list(scope_lbl), format_func=scope_lbl.get, horizontal=True, key="scope")
     c1, c2, c3, c4 = st.columns([3, 2, 1, 1])
     schools = sorted({a for _, a in metrics.people(con(), "kr" if scope == "kr" else None)})
-    sch = c1.multiselect("소속 (교수만 해당)", schools)
+    sch = c1.multiselect("소속", schools, help="명단 외 인물은 OpenAlex 기관명을 CSrankings 학교명으로 매핑해 필터합니다")
     age_rng = c2.slider("학문적 나이 (PhD 후 연수)", 0, 45, (0, 45))
     min_adj = c3.number_input("최소 adj", 0.0, 100.0, 0.0, 0.5)
     window = c4.number_input("코호트 ±", 1, 5, 2)
