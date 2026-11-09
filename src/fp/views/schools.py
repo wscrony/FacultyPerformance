@@ -204,7 +204,7 @@ for t, k in zip(tabs[1:], fields_here):
 
 # ── department fields: who leads each field ──
 st.subheader("분야별 국내 순위")
-st.caption("분야 = " + " · ".join(f"{k} ({v[0]})" for k, v in B.FIELDS.items())
+st.caption("괄호 = 그 분야 논문을 낸 교수 1인당 편수 · 교수 수. '자세히 비교 →'를 누르면 그 분야 학교 비교 페이지로 갑니다. 분야 = " + " · ".join(f"{k} ({v[0]})" for k, v in B.FIELDS.items())
            + ". 한 논문이 여러 학교에 공동 귀속될 수 있습니다.")
 fm = B.kr_field_matrix(c, f)
 FK = [k for k in B.FIELDS if k != "기타"]
@@ -219,7 +219,12 @@ if not fm.empty:
             with cols[i].container(border=True):
                 st.markdown(f"**{k}** · {B.FIELDS[k][0]}")
                 for r in lead[lead.field == k].head(5).itertuples():
-                    st.markdown(f"{int(r.kr_rank)}. {ui.short(r.institution)} — {int(r.papers)}편")
+                    st.markdown(f"{int(r.kr_rank)}. {ui.short(r.institution)} — {int(r.papers)}편 "
+                                f"<span style='opacity:.65'>({r.papers / max(1, r.faculty):.1f}/교수 · {int(r.faculty)}명)</span>",
+                                unsafe_allow_html=True)
+                if st.button("자세히 비교 →", key=f"s_fd_{k}", type="tertiary"):
+                    st.session_state["field_pick"] = k
+                    st.switch_page("views/field.py")
     # rank heatmap: schools × fields (cell = KR rank, color = papers)
     sub = fm[fm.institution.isin(order) & fm.field.isin(FK)]
     piv = sub.pivot_table(index="institution", columns="field", values="papers").reindex(index=order, columns=FK)

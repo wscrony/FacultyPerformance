@@ -336,7 +336,8 @@ def kr_field_matrix(con, f: BF):
     w, p = f.where("x")
     return con.execute(
         f"""
-        WITH t AS (SELECT x.institution, {_FIELD_SQL} AS field, count(DISTINCT x.key) AS papers
+        WITH t AS (SELECT x.institution, {_FIELD_SQL} AS field, count(DISTINCT x.key) AS papers,
+                          count(DISTINCT x.name) AS faculty
                    FROM pinst x JOIN venue v ON v.venue = x.venue
                    WHERE {w} AND x.country = 'kr' GROUP BY 1, 2)
         SELECT *, rank() OVER (PARTITION BY field ORDER BY papers DESC) AS kr_rank,
