@@ -56,7 +56,10 @@ pg = st.navigation({
         st.Page("views/people.py", title="한국인 연구자", icon=":material/groups:"),
         st.Page("views/field.py", title="분야 심층 비교", icon=":material/insights:", url_path="field"),
     ],
-    "탐색": [st.Page("app.py", title="검색 · 비교", icon=":material/search:")],
+    "탐색": [
+        st.Page("app.py", title="검색 · 비교", icon=":material/search:"),
+        st.Page("views/recruit.py", title="교수 초빙 후보", icon=":material/person_search:", url_path="recruit"),
+    ],
     "설정": [st.Page("views/venues.py", title="Top 학회 설정", icon=":material/tune:", url_path="venues")],
 })
 st.sidebar.caption("Developed by Wook-Shin Han")
