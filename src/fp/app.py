@@ -177,10 +177,11 @@ with tab_search:
                 "birth_year", "pubs",
                 "first_au", "last_au", "cites", "cites_all", "cohort_pctl", "cohort_n", "age_src"]]
     st.dataframe(
-        view, hide_index=True, width="stretch", height=420, key="search_tab",
+        ui.link_style(view), hide_index=True, width="stretch", height=420, key="search_tab",
         on_select="rerun", selection_mode=["single-row", "single-cell"],
         column_config={
             "rank": st.column_config.NumberColumn("순위", help="선택한 순위 기준으로 매긴 검색 결과 내 순위"),
+            "name": st.column_config.TextColumn("이름 ↗", help="클릭하면 논문 목록·피인용·나이 근거가 열립니다"),
             "age": st.column_config.NumberColumn(
                 "나이", help="올해 − 출생연도. 출생연도가 없으면 PhD−30, 학사−23, 첫 top 논문−28로 추정 (±3년 정도 오차)"),
             "나이추정": st.column_config.CheckboxColumn("나이 추정값"),
@@ -207,7 +208,7 @@ with tab_search:
         pr = view.iloc[picked_rows[0]]
         ui.person_card(pr["name"], G, key="search_papers")
     else:
-        st.caption("이름(또는 행의 아무 칸)을 클릭하면 그 사람의 논문 목록·피인용·나이 근거가 여기에 나옵니다.")
+        st.caption("파란 이름을 클릭하면 그 사람의 논문 목록·피인용·나이 근거가 아래에 열립니다.")
     if scope != "kr":
         st.caption("명단 외 인물의 소속은 본인 최근 논문의 OpenAlex 소속(‘소속 연도’ 기준)입니다. "
                    "한국인 여부는 이름·공저 기반 추정입니다.")

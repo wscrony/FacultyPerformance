@@ -227,11 +227,24 @@ AGE_COLS = {
 }
 
 
+def link_color() -> str:
+    return "#6da7ec" if mode() == "dark" else "#1f5fae"
+
+
+def link_style(df: pd.DataFrame, name_col: str = "name"):
+    """Color the clickable name column like a link (Styler keeps selection working)."""
+    c = link_color()
+    return df.style.map(lambda _: f"color: {c}; text-decoration: underline; font-weight: 600", subset=[name_col])
+
+
 def people_table(df: pd.DataFrame, key: str, f, column_config: dict | None = None, name_col: str = "name",
                  height: int | None = None, **kw) -> None:
     """st.dataframe whose rows open a person card (papers + citations + age evidence) when any cell is clicked."""
     cc = {**AGE_COLS, **(column_config or {})}
-    st.dataframe(df, hide_index=True, width="stretch", key=key, on_select="rerun",
+    lbl = cc.get(name_col)
+    lbl = lbl if isinstance(lbl, str) else "이름"
+    cc[name_col] = st.column_config.TextColumn(f"{lbl} ↗", help="클릭하면 논문 목록·피인용·나이 근거가 열립니다")
+    st.dataframe(link_style(df, name_col), hide_index=True, width="stretch", key=key, on_select="rerun",
                  selection_mode=["single-row", "single-cell"],
                  height=height or min(460, 36 * len(df) + 40), column_config=cc, **kw)
     sel = st.session_state.get(key)
@@ -241,7 +254,7 @@ def people_table(df: pd.DataFrame, key: str, f, column_config: dict | None = Non
     if rows and rows[0] < len(df):
         person_card(df.iloc[rows[0]][name_col], f, key=f"{key}_card")
     else:
-        st.caption("이름(행의 아무 칸)을 클릭하면 그 사람의 논문 목록·피인용·나이 근거가 나옵니다.")
+        st.caption("파란 이름을 클릭하면 그 사람의 논문 목록·피인용·나이 근거가 아래에 열립니다.")
 
 
 def person_card(name: str, f, key: str) -> None:
