@@ -239,7 +239,7 @@ def classify(r: Rules, conf: str, year: int, volume: str, number: str, pages: st
 
 SCHEMA_PAPER = pa.schema(
     [("key", pa.string()), ("venue", pa.string()), ("year", pa.int32()), ("n_authors", pa.int16()),
-     ("title", pa.string()), ("page_count", pa.int32())]
+     ("title", pa.string()), ("page_count", pa.int32()), ("doi", pa.string())]
 )
 SCHEMA_AUTH = pa.schema(
     [("key", pa.string()), ("pos", pa.int16()), ("name", pa.string()), ("raw_name", pa.string()),
@@ -255,6 +255,14 @@ def load_aliases(src: Path) -> dict[str, str]:
 def _text(elem, tag: str, default: str = "") -> str:
     e = elem.find(tag)
     return "".join(e.itertext()) if e is not None else default
+
+
+def _doi(elem) -> str | None:
+    for e in elem.findall("ee"):
+        t = (e.text or "").strip()
+        if t.startswith("https://doi.org/"):
+            return t[len("https://doi.org/"):].lower()
+    return None
 
 
 def parse(src: Path, out: Path, progress: Callable[[int], None] | None = None, batch: int = 50_000) -> dict[str, int]:
@@ -299,6 +307,7 @@ def parse(src: Path, out: Path, progress: Callable[[int], None] | None = None, b
                 papers["n_authors"].append(len(authors))
                 papers["title"].append(_text(elem, "title"))
                 papers["page_count"].append(pagecount(pages) if pages else -1)
+                papers["doi"].append(_doi(elem))
                 for i, (raw, orcid) in enumerate(authors):
                     auths["key"].append(key)
                     auths["pos"].append(i + 1)

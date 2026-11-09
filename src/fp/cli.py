@@ -231,7 +231,7 @@ def update_korean(
 
 @update_app.command("orcid")
 def update_orcid(
-    scope: str = typer.Option("kr", help="kr = faculty at KR institutions; world = all csrankings"),
+    scope: str = typer.Option("kr", help="kr = KR faculty; korean = Korean pool incl. non-faculty (ORCID from DBLP); world = all csrankings"),
     force: bool = typer.Option(False, help=f"refetch even if fetched recently"),
     limit: Optional[int] = typer.Option(None),
 ):
@@ -242,6 +242,23 @@ def update_orcid(
     con = pii.connect()
     with _progress("ORCID") as cb:
         stats = orcid.update(con, scope=scope, force=force, limit=limit, progress=cb)
+    console.print(stats)
+
+
+@update_app.command("openalex")
+def update_openalex(
+    per_person: int = typer.Option(3, help="most recent DOI papers per person (+ the earliest)"),
+    force: bool = typer.Option(False, help="refetch even if fetched recently"),
+    limit: Optional[int] = typer.Option(None, help="max people"),
+    workers: int = typer.Option(4),
+):
+    """Affiliation history from OpenAlex via each person's own DOIs (stored in the encrypted PII DB)."""
+    from fp import pii
+    from fp.ingest import openalex
+
+    con = pii.connect()
+    with _progress("OpenAlex works") as cb:
+        stats = openalex.update(con, per_person=per_person, force=force, limit=limit, workers=workers, progress=cb)
     console.print(stats)
 
 

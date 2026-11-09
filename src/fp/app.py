@@ -164,7 +164,7 @@ with tab_search:
     st.caption(
         f"{len(cdf)}명 · pctl = 국내 교수 중 같은 분야, 학문적 나이 ±{window}년 집단에서의 백분위 (기간 {yr[0]}–{yr[1]})"
     )
-    view = cdf[["name", "institution", "role", "acad_age", "추정", "phd_year", "birth_year", "pubs", "adj",
+    view = cdf[["name", "institution", "role", "affil_year", "acad_age", "추정", "phd_year", "birth_year", "pubs", "adj",
                 "first_au", "last_au", "cohort_pctl", "cohort_n", "age_src"]]
     st.dataframe(
         view, hide_index=True, width="stretch", height=420,
@@ -173,13 +173,15 @@ with tab_search:
             "cohort_pctl": st.column_config.ProgressColumn("pctl", min_value=0, max_value=100, format="%d"),
             "phd_year": st.column_config.NumberColumn("PhD", format="%d"),
             "birth_year": st.column_config.NumberColumn("출생(추정 포함)", format="%d"),
-            "role": st.column_config.TextColumn("구분"),
+            "role": st.column_config.TextColumn("구분", help="other = CSrankings 교수 명단에 없음 (포닥·학생·산업체·명단 외 교수)"),
+            "affil_year": st.column_config.NumberColumn("소속 연도", format="%d",
+                                                        help="비교수: 소속을 확인한 가장 최근 논문의 연도 (OpenAlex)"),
             "first_au": st.column_config.NumberColumn("1저자"),
             "last_au": st.column_config.NumberColumn("마지막저자"),
         },
     )
     if scope != "kr":
-        st.caption("교수가 아닌 사람의 현재 소속은 아직 알 수 없습니다(다음 단계에서 OpenAlex로 보강). "
+        st.caption("명단 외 인물의 소속은 본인 최근 논문의 OpenAlex 소속(‘소속 연도’ 기준)입니다. "
                    "한국인 여부는 이름·공저 기반 추정입니다.")
     chosen = st.multiselect(
         f"상세 보기 / 비교 대상 (결과 목록에서 선택, 최대 {MAX_COMPARE}명 · 첫 번째 사람의 프로필이 아래에 표시)",

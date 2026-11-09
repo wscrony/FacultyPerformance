@@ -101,6 +101,9 @@ def connect(read_only: bool = False) -> duckdb.DuckDBPyConnection:
     con.execute(f"ATTACH '{paths.PII_DB}' AS pii (ENCRYPTION_KEY '{key}'{mode})")
     if not mode:
         con.execute(SCHEMA)
+        from fp.ingest.openalex import PII_SCHEMA as OA_SCHEMA
+
+        con.execute(OA_SCHEMA)
     return con
 
 
@@ -110,7 +113,7 @@ def forgotten(con) -> set[str]:
 
 def forget(con, person: str) -> dict[str, int]:
     out = {}
-    for t in ("degree", "birth", "fetch_log", "note", "raw", "korean"):
+    for t in ("degree", "birth", "fetch_log", "note", "raw", "korean", "affiliation"):
         out[t] = len(con.execute(f"DELETE FROM pii.{t} WHERE person = ? RETURNING 1", [person]).fetchall())
     con.execute("INSERT OR IGNORE INTO pii.forget (person) VALUES (?)", [person])
     return out

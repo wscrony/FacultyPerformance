@@ -127,7 +127,7 @@ def test_candidates_korean_scope_includes_non_faculty(con):  # noqa: F811
     f = metrics.Filter(start=2016, end=2026)
     rows, cols = age.candidates(con, f, scope="korean")
     r = {row[0]: dict(zip(cols, row)) for row in rows}
-    assert "Minji Kim" in r and r["Minji Kim"]["role"] == "non-faculty/unknown"
+    assert "Minji Kim" in r and r["Minji Kim"]["role"] == "other · unknown"
     assert r["Minji Kim"]["first_au"] == 3
     assert "Wei Zhang 0042" not in r and "Abroad" not in r
     assert r["Young"]["role"] == "KR faculty"
@@ -155,3 +155,31 @@ def test_llm_verdicts_are_cached(con):  # noqa: F811
     pool.classify(con, since=2016, min_pubs=1, judge=j)
     pool.classify(con, since=2016, min_pubs=1, judge=j)
     assert len(calls) == 1
+
+
+def test_openalex_affiliation_by_position_and_name(con):  # noqa: F811
+    from fp.ingest import openalex
+
+    _add_author_pub(con)
+    pool.classify(con, since=2016, min_pubs=1, use_llm=False)
+    con.execute("""CREATE OR REPLACE TABLE dblp_paper (key VARCHAR, venue VARCHAR, year INTEGER, n_authors SMALLINT,
+                   title VARCHAR, page_count INTEGER, doi VARCHAR)""")
+    con.executemany("INSERT INTO dblp_paper VALUES (?, 'sigmod', ?, 2, 't', 12, ?)",
+                    [("m1", 2019, "10.1/a"), ("m2", 2024, "10.1/b")])
+    con.executemany("INSERT INTO dblp_authorship VALUES (?,?,?,?,NULL)",
+                    [("m1", 2, "Minji Kim", "Minji Kim"), ("m2", 1, "Minji Kim", "Minji Kim")])
+    inst = lambda n, c: [{"name": n, "country": c, "ror": None}]
+    fake = {
+        "10.1/a": ("ok", 2019, [{"pos": 1, "name": "X Y", "institutions": inst("Elsewhere", "us")},
+                                {"pos": 2, "name": "Min-Ji Kim", "institutions": inst("KAIST", "kr")}]),
+        # author order differs in OpenAlex → unique name fallback
+        "10.1/b": ("ok", 2024, [{"pos": 1, "name": "Q Z", "institutions": inst("Wrong", "us")},
+                                {"pos": 2, "name": "Minji Kim", "institutions": inst("Stanford University", "us")}]),
+    }
+    st = openalex.update(con, fetch=lambda doi, sess: fake[doi], workers=1)
+    assert st["people_with_affiliation"] == 1
+    rows, cols = age.candidates(con, metrics.Filter(start=2016, end=2026), scope="korean")
+    r = {row[0]: dict(zip(cols, row)) for row in rows}
+    assert r["Minji Kim"]["institution"] == "Stanford University"
+    assert r["Minji Kim"]["role"] == "other · abroad" and r["Minji Kim"]["affil_year"] == 2024
+    assert openalex.name_match("Wook-Shin Han", "W.-S. Han") and not openalex.name_match("Sungjin Lee", "Sangmin Lee")

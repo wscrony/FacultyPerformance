@@ -56,14 +56,31 @@ def create_views(con, this_year: int | None = None) -> None:
     SELECT k.person, NULL FROM pii.korean k
     WHERE k.is_korean AND k.person NOT IN (SELECT name FROM cs_faculty);
 
+    -- latest affiliation seen on the person's own papers (OpenAlex): most frequent institution in the latest year
+    CREATE OR REPLACE TEMP VIEW cur_affil AS
+    SELECT person, institution, country, year FROM (
+        SELECT a.person, a.institution, a.country, a.year,
+               row_number() OVER (PARTITION BY a.person ORDER BY a.year DESC, n_year DESC, n_all DESC, a.institution) rn
+        FROM (SELECT person, institution, any_value(country) AS country, year, count(*) AS n_year,
+                     sum(count(*)) OVER (PARTITION BY person, institution) AS n_all
+              FROM pii.affiliation GROUP BY person, institution, year) a)
+    WHERE rn = 1;
+
     CREATE OR REPLACE TEMP VIEW person_role AS
-    SELECT b.name AS person, b.affiliation, i.country,
+    SELECT b.name AS person,
+           coalesce(b.affiliation, ca.institution) AS affiliation,
+           coalesce(i.country, ca.country) AS country,
            CASE WHEN i.country = 'kr' THEN 'KR faculty'
                 WHEN b.affiliation IS NOT NULL THEN 'faculty abroad'
-                ELSE 'non-faculty/unknown' END AS role,
+                WHEN ca.country = 'kr' THEN 'other · KR'
+                WHEN ca.country IS NOT NULL THEN 'other · abroad'
+                ELSE 'other · unknown' END AS role,
+           b.affiliation IS NOT NULL AS listed_faculty,
+           ca.year AS affil_year,
            coalesce(k.is_korean, i.country = 'kr') AS is_korean
     FROM person_base b
     LEFT JOIN institution i ON i.institution = b.affiliation
+    LEFT JOIN cur_affil ca ON ca.person = b.name
     LEFT JOIN pii.korean k ON k.person = b.name;
 
     CREATE OR REPLACE TEMP VIEW person_age AS
@@ -140,9 +157,9 @@ def candidates(
     ever_f = metrics.Filter(**{**f.__dict__, "start": 0, "end": 9999})
     ever, eparams = _pub_where(ever_f)
     scope_sql = {
-        "kr": "r.country = 'kr'",
+        "kr": "r.role = 'KR faculty'",
         "korean": "r.is_korean",
-        "world": "r.affiliation IS NOT NULL",
+        "world": "r.listed_faculty",
     }[scope]
     school_sql, sparams = ("AND r.affiliation IN (SELECT unnest(?))", [f.schools]) if f.schools else ("", [])
     q = f"""
@@ -151,7 +168,7 @@ def candidates(
                sum(p.first_count) AS first_au, sum(p.last_count) AS last_au
         FROM {src} p JOIN venue v ON v.venue = p.venue WHERE {win} GROUP BY 1
     ),
-    kr AS (SELECT person FROM person_role WHERE country = 'kr'),
+    kr AS (SELECT person FROM person_role WHERE role = 'KR faculty'),
     pop AS (
         SELECT k.person AS name, coalesce(w.adj, 0) AS adj, a.academic_age
         FROM kr k
@@ -161,7 +178,7 @@ def candidates(
         JOIN person_age a ON a.person = k.person
         WHERE a.academic_age IS NOT NULL
     )
-    SELECT s.name, coalesce(r.affiliation, '-') AS institution, r.role,
+    SELECT s.name, coalesce(r.affiliation, '-') AS institution, r.role, r.affil_year,
            a.academic_age, a.phd_year, a.age_source, a.birth_year, a.birth_source,
            s.pubs, round(s.adj, 2) AS adj, s.first_au, s.last_au,
            (SELECT round(100.0 * avg(CASE WHEN q.adj < s.adj THEN 1 WHEN q.adj = s.adj THEN 0.5 ELSE 0 END), 0)
@@ -181,7 +198,7 @@ def candidates(
         q, wparams + eparams + wparams + sparams + [min_adj, age_min, age_min, age_max, age_max]
     ).fetchall()
     cols = [
-        "name", "institution", "role", "acad_age", "phd_year", "age_src", "birth_year", "birth_src",
+        "name", "institution", "role", "affil_year", "acad_age", "phd_year", "age_src", "birth_year", "birth_src",
         "pubs", "adj", "first_au", "last_au", "cohort_pctl", "cohort_n",
     ]
     return rows, cols
