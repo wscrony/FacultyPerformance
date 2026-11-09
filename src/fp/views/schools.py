@@ -27,7 +27,7 @@ ui.kpis([
     (f"세계 순위 · {'+'.join(f.fields) if f.fields else ('선택 분야' if (f.areas or f.venues) else '전 분야')}",
      f"{int(row['rank'].iloc[0])}위" if len(row) else "-",
      f"{f.start}–{f.end}, {'확장 학회 포함' if f.next_tier else 'top 학회만'}. 전 세계 CSrankings 기관 중 "
-     "교수 참여 논문 수(중복 제거) 기준. CSrankings 사이트는 공저자 수로 나눈 adjusted count로 순위를 매겨 "
+     "교수가 저자로 참여한 고유 논문 수 기준(한 논문은 한 번만, 동률은 같은 순위). CSrankings 사이트는 공저자 수로 나눈 adjusted count로 순위를 매겨 "
      "몇 계단 다를 수 있습니다."),
     ("학문적 나이 중앙값", f"{ages.median():.0f}년" if len(ages) else "-", "PhD 후 연수 (추정 포함)"),
 ])

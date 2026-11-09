@@ -85,7 +85,7 @@ def institution_share(con, f: BF, top: int = 60):
         prm + [top],
     ).df()
     df["share"] = 100.0 * df.papers / max(tot, 1)
-    df["rank"] = range(1, len(df) + 1)
+    df["rank"] = df.papers.rank(method="min", ascending=False).astype(int)  # ties share a rank
     return df, tot
 
 
