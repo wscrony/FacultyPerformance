@@ -107,7 +107,7 @@ def candidates(
       AND (? IS NULL OR a.academic_age >= ?)
       AND (? IS NULL OR a.academic_age <= ?)
       AND s.name NOT IN (SELECT person FROM pii.forget)
-    ORDER BY s.adj DESC
+    ORDER BY s.adj DESC, s.name
     {f"LIMIT {int(limit)}" if limit else ""}
     """
     rows = con.execute(

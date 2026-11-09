@@ -14,3 +14,13 @@ uv venv && uv pip install -e '.[dev]'
 .venv/bin/fp areas
 ```
 `--csv <file>` writes to `exports/` instead of printing.
+
+Personal data (encrypted `data/pii.duckdb`, key in macOS Keychain):
+```
+.venv/bin/fp update orcid                 # PhD/MS/BS years from ORCID
+.venv/bin/fp update homepage [--no-llm]   # homepage/CV extraction (Haiku via ClaudeWrapper)
+.venv/bin/fp candidates --area mod --age-max 10 --from 2021
+.venv/bin/fp pii {stats,show,set-degree,set-birth,forget}
+```
+
+Dashboard (127.0.0.1 only): `uv pip install -e '.[app]' && .venv/bin/fp app`

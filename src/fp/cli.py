@@ -177,6 +177,21 @@ def compare(
     _show([[r[0]] + [int(x or 0) for x in r[1:]] for r in rows], cols, f"{start}-{end}", None)
 
 
+@app.command("app")
+def run_app(port: int = typer.Option(8501)):
+    """Open the local dashboard (bound to 127.0.0.1 only; usage stats off)."""
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    script = Path(__file__).with_name("app.py")
+    subprocess.run([
+        sys.executable, "-m", "streamlit", "run", str(script),
+        "--server.address", "127.0.0.1", "--server.port", str(port),
+        "--server.headless", "true", "--browser.gatherUsageStats", "false",
+    ])
+
+
 @update_app.command("orcid")
 def update_orcid(
     scope: str = typer.Option("kr", help="kr = faculty at KR institutions; world = all csrankings"),

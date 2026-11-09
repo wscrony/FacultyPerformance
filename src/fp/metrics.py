@@ -78,7 +78,7 @@ def school_ranking(con, f: Filter):
                             FILTER (WHERE g.adj > 0)) AS by_area
     FROM grid g JOIN fac USING (dept)
     GROUP BY g.dept
-    ORDER BY score DESC
+    ORDER BY score DESC, institution
     """
     return con.execute(q, params + [selected] + params).fetchall(), [
         "institution",
@@ -101,7 +101,7 @@ def faculty_table(con, f: Filter, limit: int | None = None):
            arg_max(area_title, adj) AS top_area,
            map_from_entries(list((area_title, cnt) ORDER BY cnt DESC)) AS by_area
     FROM per GROUP BY name, dept
-    ORDER BY adj DESC
+    ORDER BY adj DESC, name
     {f"LIMIT {int(limit)}" if limit else ""}
     """
     return con.execute(q, params).fetchall(), ["name", "institution", "pubs", "adj", "top_area", "by_area"]
@@ -125,3 +125,36 @@ def find_people(con, pattern: str, limit: int = 20) -> list[tuple[str, str]]:
            WHERE name ILIKE ? ORDER BY name LIMIT ?""",
         [f"%{pattern}%", limit],
     ).fetchall()
+
+
+def school_area_matrix(con, f: Filter):
+    """Long form: institution, area_title, adj (within filter)."""
+    where, params = f.where()
+    q = f"""
+    SELECT p.dept AS institution, v.area_title AS area, round(sum(p.adjustedcount), 2) AS adj,
+           sum(p.count) AS pubs
+    {BASE} WHERE {where} GROUP BY ALL
+    """
+    return con.execute(q, params).df()
+
+
+def person_series(con, names: list[str], f: Filter):
+    """Per person per year per area (country filter ignored: a person's whole record)."""
+    g = Filter(**{**f.__dict__, "country": None, "schools": None})
+    where, params = g.where()
+    q = f"""
+    SELECT p.name, p.year, v.area_title AS area, sum(p.count) AS pubs, sum(p.adjustedcount) AS adj
+    {BASE} WHERE {where} AND p.name IN (SELECT unnest(?)) GROUP BY ALL ORDER BY p.year
+    """
+    return con.execute(q, params + [names]).df()
+
+
+def people(con, country: str | None = "kr") -> list[tuple[str, str]]:
+    q = """SELECT DISTINCT f.name, f.affiliation FROM cs_faculty f
+           JOIN institution i ON i.institution = f.affiliation
+           WHERE (? IS NULL OR i.country = ?) ORDER BY f.name"""
+    return con.execute(q, [country, country]).fetchall()
+
+
+def snapshots(con):
+    return con.execute("SELECT source, version, fetched_at FROM snapshot ORDER BY fetched_at DESC").df()
