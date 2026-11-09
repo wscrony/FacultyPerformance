@@ -230,14 +230,17 @@ fp diff --since <snap> # 신규 논문/소속 변경 리포트
 
 ---
 
-## 8. 결정이 필요한 사항 (Open Questions)
+## 8. 확정 사항 (2026-11-09)
 
-1. **후보자 풀 범위**: 다음 중 무엇을 v1에 포함할지.
-   - (a) 국내 교수만 — M1–M3로 충분
-   - (b) CSrankings 해외 교수 중 한국인
-   - (c) DBLP 전체 한국인 (포닥·학생 포함) — M4
-2. **분야 범위**: CSrankings 전체 area인지, DB/ML/Systems 등 관심 분야를 우선할지.
-3. **나이 표기**: 학문적 나이만 쓸지, 추정 생년도 노출할지 (개인정보 고려).
-4. **UI**: Streamlit 로컬 앱으로 충분한지, 학과 구성원과 공유할 웹페이지(내부 인증)가 필요한지.
-5. **비교 기준 집단**: percentile 모집단을 국내 교수로 할지, 전 세계 CSrankings 교수로 할지 (둘 다 제공 가능).
-6. **저장소**: 별도 private GitHub repo를 만들지 (데이터 라이선스상 private 필수).
+1. **후보자 풀**: 국내 교수, CSrankings 해외 교수 중 한국인, DBLP 전체 한국인(포닥·학생)을 모두 포함한다. M1–M5 순서로 확장한다.
+2. **분야**: CSrankings 전 분야를 적재한다.
+   - venue→area 매핑은 CSrankings `src/config.ts`에서 매번 자동으로 파싱한다.
+   - next-tier venue는 CSrankings와 같이 기본 off이고 옵션으로 켤 수 있다.
+3. **나이**: 홈페이지·ORCID에서 얻은 값(생년 또는 학위 연도)을 쓴다. 없으면 추정치를 쓰고 `source`와 `confidence`를 표시한다.
+   - 추정 규칙: PhD 연도 −30, 학사 연도 −23, 첫 DBLP 논문 연도 −26 (우선순위 순).
+4. **UI**: 로컬 앱(CLI + Streamlit)으로 시작한다.
+5. **percentile 모집단**: 국내 교수.
+6. **원격 저장소**: 당장은 만들지 않는다.
+   - 로컬 git만 쓴다 (상위 repo에는 remote가 없음을 확인).
+   - 나중에 private GitHub repo로 옮긴다. 데이터는 `.gitignore`로 항상 제외한다.
+7. **LLM 추출**: 공개 홈페이지의 학력 구간만 로컬 claude CLI로 보낸다. `--no-llm` 옵션을 제공한다.
