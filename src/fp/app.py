@@ -205,27 +205,9 @@ with tab_search:
         picked_rows = list(sel.selection.get("rows") or []) or [c[0] for c in (sel.selection.get("cells") or [])]
     if picked_rows and picked_rows[0] < len(view):
         pr = view.iloc[picked_rows[0]]
-        pp = age.person_papers(con(), pr["name"], G)
-        with st.container(border=True):
-            tot_c = int(pp.cites.fillna(0).sum())
-            st.markdown(f"**{pr['name']}** · {pr['institution'] or ''} · 논문 {len(pp)}편 · 피인용 {tot_c:,} "
-                        f"({yr[0]}–{yr[1]}, 검색 조건 기준)")
-            show = pp.assign(cites=[f"{int(x):,}" if pd.notna(x) else "" for x in pp.cites],
-                             link=pp.link.fillna(""))
-            st.dataframe(
-                show, hide_index=True, width="stretch", height=min(520, 36 * len(pp) + 40), key="search_papers",
-                column_config={
-                    "year": st.column_config.NumberColumn("연도", format="%d", width="small"),
-                    "venue": "학회", "field": "분야", "title": st.column_config.TextColumn("제목", width="large"),
-                    "position": "저자 위치",
-                    "cites": st.column_config.TextColumn("피인용", help="OpenAlex cited_by — DOI로, DOI가 없으면(NeurIPS 등) 제목 일치로 매칭"),
-                    "link": st.column_config.LinkColumn("링크", display_text="열기", help="DOI, 없으면 dblp"),
-                },
-            )
-            st.caption("피인용 = OpenAlex 기준. DOI가 없는 논문(NeurIPS·ICLR 등)은 제목이 정확히 일치하는 OpenAlex 논문의 "
-                       "피인용(arXiv·학회 버전 중 큰 값)을 씁니다. 빈칸 = 매칭 실패 또는 아직 조회 전.")
+        ui.person_card(pr["name"], G, key="search_papers")
     else:
-        st.caption("이름(또는 행의 아무 칸)을 클릭하면 그 사람의 논문 목록과 피인용 수가 여기에 나옵니다.")
+        st.caption("이름(또는 행의 아무 칸)을 클릭하면 그 사람의 논문 목록·피인용·나이 근거가 여기에 나옵니다.")
     if scope != "kr":
         st.caption("명단 외 인물의 소속은 본인 최근 논문의 OpenAlex 소속(‘소속 연도’ 기준)입니다. "
                    "한국인 여부는 이름·공저 기반 추정입니다.")
@@ -301,7 +283,7 @@ with tab_cmp:
             "나이 출처": [ages.age_source.get(n) if n in ages.index else None for n in names],
             f"논문 {yr[0]}–{yr[1]}": [int(s[s["name"] == n].pubs.sum()) for n in names],
         })
-        st.dataframe(info, hide_index=True, width="stretch")
+        ui.people_table(ui.add_age(info, after="학문적 나이"), "cmp_info", F)
 
         piv = s.pivot_table(index="area", columns="name", values="pubs", aggfunc="sum").fillna(0)
         piv = piv.loc[piv.sum(axis=1).sort_values().index]

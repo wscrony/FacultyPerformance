@@ -185,16 +185,16 @@ else:
     mx = int(fa.field_papers.max() or 1)
     st.caption(f"주 분야 = {f.start}–{f.end} 논문이 가장 많은 분야. 국내 환산 순위 = 같은 분야·기간 국내 교수들 사이에 "
                "넣었을 때의 순위.")
-    st.dataframe(
-        fa[["main_field", "rank_txt", "kr_equiv", "name", "institution", "field_papers", "pubs", "first_au", "last_au",
-            "cites", "age", "acad_age"]],
-        hide_index=True, width="stretch", height=460, key="p_abroad",
+    ui.people_table(
+        ui.add_age(fa[["main_field", "rank_txt", "kr_equiv", "name", "institution", "field_papers", "pubs", "first_au",
+                       "last_au", "cites", "acad_age"]], after="acad_age"),
+        "p_abroad", f, height=460,
         column_config={
             "main_field": "주 분야", "rank_txt": st.column_config.TextColumn("분야 내 순위 (해외 한국인 교수)"),
             "kr_equiv": st.column_config.TextColumn("국내 환산 순위"), "name": "이름", "institution": "소속",
             "field_papers": st.column_config.ProgressColumn(f"주 분야 논문 {f.start}–{f.end}", format="%d",
                                                             min_value=0, max_value=mx),
             "pubs": "전체 분야 논문", "first_au": "1저자", "last_au": "마지막저자", "cites": "피인용",
-            "age": st.column_config.NumberColumn("나이(추정)"), "acad_age": "학문적 나이",
+            "acad_age": "학문적 나이",
         },
     )

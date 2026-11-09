@@ -46,8 +46,8 @@ if rows_sel:
     fl = B.institution_faculty(c, pick.institution, f)
     with st.container(border=True):
         st.markdown(f"**{pick.institution}** · 교수 {len(fl)}명 · 논문 {int(pick.papers):,}편 ({scope}, {f.start}–{f.end})")
-        st.dataframe(
-            fl, hide_index=True, width="stretch", height=min(520, 36 * len(fl) + 40), key="s_rank_fac",
+        ui.people_table(
+            ui.add_age(fl, after="name"), "s_rank_fac", f, height=min(520, 36 * len(fl) + 40),
             column_config={
                 "no": st.column_config.NumberColumn("#", width="small"), "name": "교수",
                 "papers": st.column_config.ProgressColumn("논문", format="%d", min_value=0,
@@ -125,9 +125,9 @@ def with_kr_rank(d, field: str):
 
 def fac_table(df, label: str, key: str, field: str):
     mx = int(df.papers.max() or 1) if len(df) else 1
-    st.dataframe(
-        df.drop(columns=["kr_n"], errors="ignore"), hide_index=True, width="stretch",
-        height=min(420, 36 * len(df) + 40), key=key,
+    ui.people_table(
+        ui.add_age(df.drop(columns=["kr_n"], errors="ignore"), after="academic_age"), key, f,
+        height=min(420, 36 * len(df) + 40),
         column_config={
             "rank": st.column_config.NumberColumn("교내 순위", width="small"), "name": "이름",
             "kr_rank": st.column_config.TextColumn(f"국내 순위 ({field})",
@@ -157,9 +157,10 @@ with tabs[0]:
     main = main.sort_values(["fo", "rank"])
     mx = int(main.papers.max() or 1) if len(main) else 1
     st.caption(f"주 분야 = {f.start}–{f.end} 논문이 가장 많은 분야. 순위는 그 분야 논문 수 기준.")
-    st.dataframe(
-        main[["main_field", "kr_rank", "rank", "name", "papers", "papers_window", "academic_age", "age_source"]],
-        hide_index=True, width="stretch", height=420, key="s_fac_all",
+    ui.people_table(
+        ui.add_age(main[["main_field", "kr_rank", "rank", "name", "papers", "papers_window", "academic_age",
+                         "age_source"]], after="academic_age"),
+        "s_fac_all", f, height=420,
         column_config={
             "main_field": "주 분야",
             "kr_rank": st.column_config.TextColumn("분야 내 국내 순위",

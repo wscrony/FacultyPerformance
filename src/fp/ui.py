@@ -6,6 +6,7 @@ import re
 from datetime import date
 
 import duckdb
+import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
@@ -189,3 +190,104 @@ def ink(fill: str) -> str:
     lin = [c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4 for c in ch]
     lum = 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2]
     return "#1a1a19" if (lum + 0.05) / 0.05 > 1.05 / (lum + 0.05) else "#ffffff"
+
+
+# ───────────── people tables: real age next to academic age, click a name → person card ─────────────
+
+def _as_filter(f):
+    """BF (boards) or metrics.Filter → metrics.Filter for the paper list."""
+    from fp import boards as B
+    from fp import metrics
+
+    if isinstance(f, metrics.Filter):
+        return f
+    venues = f.venues or (B.field_venues(con(), f.fields, f.next_tier) if f.fields and not f.areas else None)
+    return metrics.Filter(start=f.start, end=f.end, areas=f.areas, venues=venues, next_tier=f.next_tier)
+
+
+def add_age(df: pd.DataFrame, name_col: str = "name", after: str | None = None) -> pd.DataFrame:
+    """Add 'age' (estimated real age, this year − birth year incl. estimates) and 'age_est' (True = estimate)."""
+    names = [n for n in df[name_col].dropna().unique()]
+    a = con().execute("SELECT person, birth_year, birth_source FROM person_age WHERE person IN (SELECT unnest(?))",
+                      [names]).df().set_index("person")
+    out = df.drop(columns=["age", "age_est"], errors="ignore").copy()
+    by = out[name_col].map(a.birth_year)
+    ages = (THIS_YEAR - by).astype("Int64")
+    est = out[name_col].map(a.birth_source).fillna("est").str.startswith("est")
+    pos = (list(out.columns).index(after) + 1) if after in out.columns else len(out.columns)
+    out.insert(pos, "age", ages)
+    out.insert(pos + 1, "age_est", est)
+    return out
+
+
+AGE_COLS = {
+    "age": st.column_config.NumberColumn("나이 (추정)", help="올해 − 출생연도. 출생연도를 모르면 PhD−30 / 학사−23 / "
+                                                           "첫 top 논문−28로 추정"),
+    "age_est": st.column_config.CheckboxColumn("나이 추정값", help="체크 = 추정값 (확인된 출생연도 아님)"),
+}
+
+
+def people_table(df: pd.DataFrame, key: str, f, column_config: dict | None = None, name_col: str = "name",
+                 height: int | None = None, **kw) -> None:
+    """st.dataframe whose rows open a person card (papers + citations + age evidence) when any cell is clicked."""
+    cc = {**AGE_COLS, **(column_config or {})}
+    st.dataframe(df, hide_index=True, width="stretch", key=key, on_select="rerun",
+                 selection_mode=["single-row", "single-cell"],
+                 height=height or min(460, 36 * len(df) + 40), column_config=cc, **kw)
+    sel = st.session_state.get(key)
+    rows = []
+    if sel is not None and hasattr(sel, "selection"):
+        rows = list(sel.selection.get("rows") or []) or [c[0] for c in (sel.selection.get("cells") or [])]
+    if rows and rows[0] < len(df):
+        person_card(df.iloc[rows[0]][name_col], f, key=f"{key}_card")
+    else:
+        st.caption("이름(행의 아무 칸)을 클릭하면 그 사람의 논문 목록·피인용·나이 근거가 나옵니다.")
+
+
+def person_card(name: str, f, key: str) -> None:
+    from fp import links
+
+    mf = _as_filter(f)
+    c = con()
+    pa = c.execute("""SELECT a.affiliation, a.phd_year, a.phd_institution, a.age_source, a.academic_age,
+                             a.birth_year, a.birth_source, a.first_top_year, r.role, s.stage
+                      FROM person_age a LEFT JOIN person_role r USING (person)
+                      LEFT JOIN person_stage s USING (person) WHERE a.person = ?""", [name]).df()
+    pp = age.person_papers(c, name, mf)
+    with st.container(border=True):
+        p = pa.iloc[0] if len(pa) else None
+        role = ""
+        if p is not None:
+            role = {"KR faculty": "국내 교수", "faculty abroad": "해외 교수"}.get(p.role) or (p.stage or "")
+        st.markdown(f"#### {name}")
+        lk = links.person_links(c, name)
+        if lk:
+            st.markdown(" · ".join(f"[{k}{' (검색)' if kind == 'search' else ''}]({u})" for k, (u, kind) in lk.items()))
+        tot = int(pp.cites.fillna(0).sum())
+        if p is not None:
+            est_b = str(p.birth_source or "est").startswith("est")
+            est_a = str(p.age_source or "est").startswith("est")
+            kp = [
+                ("소속", p.affiliation or "-", role or None),
+                ("나이" + (" (추정)" if est_b else ""), f"{THIS_YEAR - int(p.birth_year)}세" if pd.notna(p.birth_year)
+                 else "-", f"출생 {int(p.birth_year)} · 출처 {p.birth_source}" if pd.notna(p.birth_year) else None),
+                ("학문적 나이" + (" (추정)" if est_a else ""), f"{int(p.academic_age)}년" if pd.notna(p.academic_age)
+                 else "-", (f"PhD {int(p.phd_year)}" + (f" {p.phd_institution}" if p.phd_institution else "")
+                            if pd.notna(p.phd_year) else f"첫 top 논문 {p.first_top_year}") + f" · 출처 {p.age_source}"),
+                (f"논문 {mf.start}–{mf.end}", f"{len(pp)}편", f"피인용 {tot:,}"),
+            ]
+            kpis(kp)
+            st.caption(" · ".join(f"{l}: {h}" for l, _, h in kp[1:3] if h))
+        show = pp.assign(cites=[f"{int(x):,}" if pd.notna(x) else "" for x in pp.cites], link=pp.link.fillna(""))
+        st.dataframe(
+            show, hide_index=True, width="stretch", height=min(480, 36 * len(pp) + 40), key=key,
+            column_config={
+                "year": st.column_config.NumberColumn("연도", format="%d", width="small"),
+                "venue": "학회", "field": "분야", "title": st.column_config.TextColumn("제목", width="large"),
+                "position": "저자 위치",
+                "cites": st.column_config.TextColumn("피인용", help="OpenAlex — DOI, 없으면(NeurIPS 등) 제목 일치"),
+                "link": st.column_config.LinkColumn("링크", display_text="열기", help="DOI, 없으면 dblp"),
+            },
+        )
+        st.caption("논문 = 현재 화면의 기간·분야 조건. 피인용 = OpenAlex (DOI 없는 논문은 제목 일치, 빈칸 = 매칭 전/실패). "
+                   "나이·학위 근거는 로컬 암호화 DB.")
