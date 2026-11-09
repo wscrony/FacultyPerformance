@@ -71,8 +71,12 @@ fig.update_layout(title=f"상위 {top}개 기관 · 타일 크기 = 논문 수 �
 ui.plot(fig, height=760, legend=False, key="treemap")
 st.caption("● " + "  ● ".join(f"{g}" for g in gs) + " — 색은 지역, 같은 지역은 같은 색입니다.")
 with st.expander("숫자 보기"):
-    st.dataframe(d[["rank", "institution", "grp", "country", "papers", "share"]].round(2), hide_index=True,
-                 width="stretch", column_config={"share": st.column_config.NumberColumn("점유율 %", format="%.2f")})
+    st.dataframe(d[["rank", "institution", "grp", "country", "papers", "share", "faculty", "per_faculty", "rank_norm"]]
+                 .round(2), hide_index=True, width="stretch",
+                 column_config={"rank": "순위 (논문 수)", "share": st.column_config.NumberColumn("점유율 %", format="%.2f"),
+                                "faculty": "교수", "per_faculty": st.column_config.NumberColumn("1인당", format="%.1f"),
+                                "rank_norm": st.column_config.NumberColumn(
+                                    "순위 (1인당)", help=f"교수 {B.MIN_FACULTY_NORM}명 이상 기관 중")})
 
 # ── 2. region share trend ──
 st.subheader("지역별 점유율 추이")

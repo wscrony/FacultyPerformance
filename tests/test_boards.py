@@ -2,6 +2,8 @@
 
 from pathlib import Path
 
+import pandas as pd
+
 import pytest
 from streamlit.testing.v1 import AppTest
 
@@ -92,3 +94,12 @@ def test_not_top_override_and_field_mapping(con):  # noqa: F811
     assert got["kdd"] == "DM" and got["www"] == "DM" and got["sigmod"] == "DB" and got["aaai"] == "ML"
     where, prm = B.BF(start=2000, end=2030, fields=["DB"]).where("p", "v")
     assert "unnest" in where and ["DB"] in prm
+
+
+def test_per_faculty_rank_counts_only_faculty(con):  # noqa: F811
+    age.create_views(con)
+    inst, _ = B.institution_share(con, B.BF(start=2000, end=2030), 100)
+    a = inst.set_index("institution").loc["A"]
+    # faculty authors at A in the fixture papers: Old, Young, Mid (Minji Kim is not faculty → not counted)
+    assert a.faculty == 3 and abs(a.per_faculty - a.papers / 3) < 1e-9
+    assert pd.isna(inst.set_index("institution").loc["Z"].rank_norm)  # 1 faculty < MIN_FACULTY_NORM

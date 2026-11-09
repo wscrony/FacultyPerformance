@@ -13,22 +13,45 @@ f = ui.board_filter("s", credit=False)
 c = ui.con()
 schools = B.kr_schools(c)
 
+inst, total = B.institution_share(c, f, 100000)
+scope = '+'.join(f.fields) if f.fields else ('선택 분야' if (f.areas or f.venues) else '전 분야')
+basis = (f"{f.start}–{f.end}, {scope}, {'확장 학회 포함' if f.next_tier else 'top 학회만'}. 논문 = 그 기관 현재 교수"
+         "(CSrankings)가 저자로 참여한 고유 논문 수. 교수 = 이 조건에서 논문이 1편 이상인 교수만 (학생·연구원 제외).")
+
+# ── KR institution ranking ──
+st.subheader("국내 기관 순위")
+kr_tab = inst[inst.country == "kr"].sort_values("papers", ascending=False)
+st.dataframe(
+    kr_tab[["institution", "rank", "papers", "faculty", "per_faculty", "rank_norm"]],
+    hide_index=True, width="stretch", height=min(460, 36 * len(kr_tab) + 40), key="s_rank_tab",
+    column_config={
+        "institution": "기관",
+        "rank": st.column_config.NumberColumn("세계 순위 (논문 수)", format="%d위"),
+        "papers": st.column_config.ProgressColumn("논문", format="%d", min_value=0,
+                                                  max_value=int(kr_tab.papers.max() or 1)),
+        "faculty": st.column_config.NumberColumn("교수", format="%d명"),
+        "per_faculty": st.column_config.NumberColumn("교수 1인당 논문", format="%.1f"),
+        "rank_norm": st.column_config.NumberColumn(
+            "세계 순위 (1인당)", format="%d위",
+            help=f"교수 {B.MIN_FACULTY_NORM}명 이상 기관 중 1인당 논문 수 순위 (미만이면 빈칸)"),
+    },
+)
+st.caption(basis + f" 1인당 순위는 이 조건의 교수가 {B.MIN_FACULTY_NORM}명 이상인 전 세계 기관끼리 비교합니다.")
+
 # ── school profile ──
 st.subheader("학교 프로필")
 school = st.selectbox("학교", schools, key="s_school")
 prof = B.school_profile(c, school, f)
 active = prof[prof.papers_career > 0]
-inst, total = B.institution_share(c, f, 1000)
 row = inst[inst.institution == school]
 ages = active.academic_age.dropna()
+rn = row.rank_norm.iloc[0] if len(row) else None
 ui.kpis([
-    ("교수 (CSrankings)", f"{len(active)}명", "대상 학회 논문이 1편 이상인 교수"),
-    (f"논문 {f.start}–{f.end}", f"{int(row.papers.iloc[0]) if len(row) else 0:,}편", "교수 참여 논문 (중복 제거)"),
-    (f"세계 순위 · {'+'.join(f.fields) if f.fields else ('선택 분야' if (f.areas or f.venues) else '전 분야')}",
-     f"{int(row['rank'].iloc[0])}위" if len(row) else "-",
-     f"{f.start}–{f.end}, {'확장 학회 포함' if f.next_tier else 'top 학회만'}. 전 세계 CSrankings 기관 중 "
-     "교수가 저자로 참여한 고유 논문 수 기준(한 논문은 한 번만, 동률은 같은 순위). CSrankings 사이트는 공저자 수로 나눈 adjusted count로 순위를 매겨 "
-     "몇 계단 다를 수 있습니다."),
+    (f"교수 · {scope}", f"{int(row.faculty.iloc[0]) if len(row) else 0}명", "이 조건에서 논문이 1편 이상인 CSrankings 교수"),
+    (f"논문 {f.start}–{f.end}", f"{int(row.papers.iloc[0]) if len(row) else 0:,}편", "교수 참여 고유 논문"),
+    (f"세계 순위 · {scope}", f"{int(row['rank'].iloc[0])}위" if len(row) else "-", basis + " 동률은 같은 순위."),
+    ("세계 순위 · 교수 1인당", f"{int(rn)}위" if rn is not None and pd.notna(rn) else "-",
+     (f"{float(row.per_faculty.iloc[0]):.1f}편/인. " if len(row) else "") + basis),
     ("학문적 나이 중앙값", f"{ages.median():.0f}년" if len(ages) else "-", "PhD 후 연수 (추정 포함)"),
 ])
 

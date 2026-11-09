@@ -71,6 +71,9 @@ def total_papers(con, f: BF) -> int:
     return con.execute(f"SELECT count(*) FROM dblp_paper p JOIN venue v USING (venue) WHERE {w}", prm).fetchone()[0]
 
 
+MIN_FACULTY_NORM = 3  # per-faculty rank only for institutions with this many active faculty in the filter
+
+
 def institution_share(con, f: BF, top: int = 60):
     """Rows: grp, institution, country, papers, share% (of all papers in filter); top N institutions."""
     ensure_pinst(con)
@@ -78,14 +81,19 @@ def institution_share(con, f: BF, top: int = 60):
     tot = total_papers(con, f)
     df = con.execute(
         f"""
-        SELECT x.grp, x.institution, any_value(x.country) AS country, count(DISTINCT x.key) AS papers
+        SELECT x.grp, x.institution, any_value(x.country) AS country, count(DISTINCT x.key) AS papers,
+               count(DISTINCT x.name) AS faculty  -- CSrankings faculty with >= 1 paper in the filter
         FROM pinst x JOIN venue v ON v.venue = x.venue
-        WHERE {w} AND {f.credit_sql()} GROUP BY 1, 2 ORDER BY papers DESC, x.institution LIMIT ?
+        WHERE {w} AND {f.credit_sql()} GROUP BY 1, 2
         """,
-        prm + [top],
+        prm,
     ).df()
     df["share"] = 100.0 * df.papers / max(tot, 1)
     df["rank"] = df.papers.rank(method="min", ascending=False).astype(int)  # ties share a rank
+    df["per_faculty"] = df.papers / df.faculty
+    ok = df.faculty >= MIN_FACULTY_NORM
+    df["rank_norm"] = df.per_faculty.where(ok).rank(method="min", ascending=False).astype("Int64")
+    df = df.sort_values(["papers", "institution"], ascending=[False, True]).head(top).reset_index(drop=True)
     return df, tot
 
 
