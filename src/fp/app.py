@@ -185,12 +185,11 @@ with tab_search:
     view = cdf[["rank", "name", "institution", "role", "affil_year", "age", "나이추정", "acad_age", "추정", "phd_year",
                 "birth_year", "pubs",
                 "first_au", "last_au", "cites", "cites_all", "cohort_pctl", "cohort_n", "age_src"]]
-    st.dataframe(
-        ui.link_style(view), hide_index=True, width="stretch", height=420, key="search_tab",
-        on_select="rerun", selection_mode=["single-row", "single-cell"],
+    pick_i = ui.clickable_table(
+        view, "search_tab", "name", link_label="이름",
+        link_help="클릭하면 논문 목록·피인용·나이 근거가 아래에 열립니다", height=420,
         column_config={
             "rank": st.column_config.NumberColumn("순위", help="선택한 순위 기준으로 매긴 검색 결과 내 순위"),
-            "name": st.column_config.TextColumn("이름 ↗", help="클릭하면 논문 목록·피인용·나이 근거가 열립니다"),
             "age": st.column_config.NumberColumn(
                 "나이", help="올해 − 출생연도. 출생연도가 없으면 PhD−30, 학사−23, 첫 top 논문−28로 추정 (±3년 정도 오차)"),
             "나이추정": st.column_config.CheckboxColumn("나이 추정값"),
@@ -209,12 +208,9 @@ with tab_search:
             "last_au": st.column_config.NumberColumn("마지막저자"),
         },
     )
-    sel = st.session_state.get("search_tab")
-    picked_rows = []
-    if sel is not None and hasattr(sel, "selection"):  # a row checkbox, or any cell (e.g. the name) in that row
-        picked_rows = list(sel.selection.get("rows") or []) or [c[0] for c in (sel.selection.get("cells") or [])]
-    if picked_rows and picked_rows[0] < len(view):
-        pr = view.iloc[picked_rows[0]]
+    if pick_i is not None:
+        pr = view.iloc[pick_i]
+        st.markdown(f"▼ **{pr['name']}** 선택됨 — 자세한 정보 (다른 이름을 클릭하면 바뀝니다)")
         ui.person_card(pr["name"], G, key="search_papers")
     else:
         st.caption("파란 이름을 클릭하면 그 사람의 논문 목록·피인용·나이 근거가 아래에 열립니다.")

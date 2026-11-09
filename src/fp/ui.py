@@ -231,28 +231,52 @@ def link_color() -> str:
     return "#6da7ec" if mode() == "dark" else "#1f5fae"
 
 
-def link_style(df: pd.DataFrame, name_col: str = "name"):
-    """Color the clickable name column like a link (Styler keeps selection working)."""
+def selected_row(key: str) -> int | None:
+    """Row picked in a selectable dataframe (row checkbox or any cell), from the previous interaction."""
+    sel = st.session_state.get(key)
+    if sel is None or not hasattr(sel, "selection"):
+        return None
+    rows = list(sel.selection.get("rows") or []) or [c[0] for c in (sel.selection.get("cells") or [])]
+    return rows[0] if rows else None
+
+
+def link_style(df: pd.DataFrame, link_col: str = "name", selected: int | None = None):
+    """Clickable column styled like a link; the selected row highlighted (Styler keeps selection working)."""
     c = link_color()
-    return df.style.map(lambda _: f"color: {c}; text-decoration: underline; font-weight: 600", subset=[name_col])
+    sty = df.style.map(lambda _: f"color: {c}; text-decoration: underline; font-weight: 600", subset=[link_col])
+    if selected is not None and 0 <= selected < len(df):
+        bg = "rgba(57,135,229,0.28)" if mode() == "dark" else "rgba(42,120,214,0.16)"
+        sty = sty.apply(lambda r: [f"background-color: {bg}; font-weight: 700" if r.name == df.index[selected]
+                                   else "" for _ in r], axis=1)
+    return sty
+
+
+def clickable_table(df: pd.DataFrame, key: str, link_col: str, column_config: dict | None = None,
+                    link_label: str | None = None, link_help: str = "클릭하면 아래에 자세한 정보가 열립니다",
+                    height: int | None = None, **kw) -> int | None:
+    """Selectable table: link-styled column (▸ header), selected row highlighted. Returns the selected row."""
+    cc = dict(column_config or {})
+    lbl = link_label or (cc.get(link_col) if isinstance(cc.get(link_col), str) else link_col)
+    cc[link_col] = st.column_config.TextColumn(f"{lbl} ↗", help=link_help)
+    pick = selected_row(key)
+    pick = pick if pick is not None and pick < len(df) else None
+    st.dataframe(link_style(df, link_col, pick), hide_index=True, width="stretch", key=key, on_select="rerun",
+                 selection_mode=["single-row", "single-cell"],
+                 height=height or min(460, 36 * len(df) + 40), column_config=cc, **kw)
+    return pick
 
 
 def people_table(df: pd.DataFrame, key: str, f, column_config: dict | None = None, name_col: str = "name",
                  height: int | None = None, **kw) -> None:
-    """st.dataframe whose rows open a person card (papers + citations + age evidence) when any cell is clicked."""
+    """Person table: click a name → person card (papers + citations + age evidence) below."""
     cc = {**AGE_COLS, **(column_config or {})}
-    lbl = cc.get(name_col)
-    lbl = lbl if isinstance(lbl, str) else "이름"
-    cc[name_col] = st.column_config.TextColumn(f"{lbl} ↗", help="클릭하면 논문 목록·피인용·나이 근거가 열립니다")
-    st.dataframe(link_style(df, name_col), hide_index=True, width="stretch", key=key, on_select="rerun",
-                 selection_mode=["single-row", "single-cell"],
-                 height=height or min(460, 36 * len(df) + 40), column_config=cc, **kw)
-    sel = st.session_state.get(key)
-    rows = []
-    if sel is not None and hasattr(sel, "selection"):
-        rows = list(sel.selection.get("rows") or []) or [c[0] for c in (sel.selection.get("cells") or [])]
-    if rows and rows[0] < len(df):
-        person_card(df.iloc[rows[0]][name_col], f, key=f"{key}_card")
+    pick = clickable_table(df, key, name_col, cc, link_label=cc.get(name_col) if isinstance(cc.get(name_col), str)
+                           else "이름", link_help="클릭하면 논문 목록·피인용·나이 근거가 아래에 열립니다",
+                           height=height, **kw)
+    if pick is not None:
+        nm = df.iloc[pick][name_col]
+        st.markdown(f"▼ **{nm}** 선택됨 — 자세한 정보 (다른 이름을 클릭하면 바뀝니다)")
+        person_card(nm, f, key=f"{key}_card")
     else:
         st.caption("파란 이름을 클릭하면 그 사람의 논문 목록·피인용·나이 근거가 아래에 열립니다.")
 

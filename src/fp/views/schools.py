@@ -21,12 +21,11 @@ basis = (f"{f.start}–{f.end}, {scope}, {'확장 학회 포함' if f.next_tier 
 # ── KR institution ranking ──
 st.subheader("국내 기관 순위")
 kr_tab = inst[inst.country == "kr"].sort_values("papers", ascending=False)
-st.dataframe(
-    kr_tab[["institution", "rank", "papers", "faculty", "per_faculty", "rank_norm"]],
-    hide_index=True, width="stretch", height=min(460, 36 * len(kr_tab) + 40), key="s_rank_tab",
-    on_select="rerun", selection_mode="single-row",
+pick_i = ui.clickable_table(
+    kr_tab[["institution", "rank", "papers", "faculty", "per_faculty", "rank_norm"]].reset_index(drop=True),
+    "s_rank_tab", "institution", link_label="기관", link_help="클릭하면 교수 수에 포함된 교수 명단이 아래에 열립니다",
+    height=min(460, 36 * len(kr_tab) + 40),
     column_config={
-        "institution": "기관",
         "rank": st.column_config.NumberColumn("세계 순위 (논문 수)", format="%d위"),
         "papers": st.column_config.ProgressColumn("논문", format="%d", min_value=0,
                                                   max_value=int(kr_tab.papers.max() or 1)),
@@ -38,11 +37,10 @@ st.dataframe(
     },
 )
 st.caption(basis + f" 1인당 순위는 이 조건의 교수가 {B.MIN_FACULTY_NORM}명 이상인 전 세계 기관끼리 비교합니다. "
-           "행을 클릭하면 교수 수에 포함된 교수 명단이 나옵니다.")
-sel = st.session_state.get("s_rank_tab")
-rows_sel = sel.selection.rows if sel is not None and hasattr(sel, "selection") else []
-if rows_sel:
-    pick = kr_tab.iloc[rows_sel[0]]
+           "파란 기관명을 클릭하면 교수 수에 포함된 교수 명단이 아래에 열립니다.")
+if pick_i is not None:
+    pick = kr_tab.iloc[pick_i]
+    st.markdown(f"▼ **{pick.institution}** 선택됨 — 교수 명단 (다른 기관을 클릭하면 바뀝니다)")
     fl = B.institution_faculty(c, pick.institution, f)
     with st.container(border=True):
         st.markdown(f"**{pick.institution}** · 교수 {len(fl)}명 · 논문 {int(pick.papers):,}편 ({scope}, {f.start}–{f.end})")
