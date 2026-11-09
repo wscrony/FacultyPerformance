@@ -6,8 +6,8 @@ st.set_page_config(page_title="Faculty Performance", page_icon="📊", layout="w
 
 pg = st.navigation({
     "분석 보드": [
-        st.Page("views/world.py", title="세계 속 한국", icon=":material/public:", default=True),
-        st.Page("views/schools.py", title="국내 기관", icon=":material/account_balance:"),
+        # 세계 속 한국 (views/world.py) hidden by user request; file kept
+        st.Page("views/schools.py", title="국내 기관", icon=":material/account_balance:", default=True),
         st.Page("views/people.py", title="한국인 연구자", icon=":material/groups:"),
     ],
     "탐색": [st.Page("app.py", title="검색 · 비교", icon=":material/search:")],
