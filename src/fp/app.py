@@ -82,7 +82,29 @@ def render_compare(names: list[str], kp: str, flt: metrics.Filter | None = None)
         "나이 출처": [ages.age_source.get(n) if n in ages.index else None for n in names],
         f"논문 {yr[0]}–{yr[1]}": [int(s[s["name"] == n].pubs.sum()) for n in names],
     })
+    # citations side by side: the period's papers and the whole career (same venue/field filter)
+    career = metrics.Filter(start=1970, end=THIS_YEAR, areas=flt.areas, next_tier=flt.next_tier, venues=flt.venues)
+    has_dblp = con().execute("SELECT count(*) FROM duckdb_tables() WHERE table_name = 'dblp_authorship'").fetchone()[0]
+    empty = pd.DataFrame({"year": pd.Series(dtype=int), "title": pd.Series(dtype=str), "cites": pd.Series(dtype=float)})
+    pp = {n: age.person_papers(con(), n, career) if has_dblp else empty for n in names}
+
+    def _h(c):
+        c = sorted((int(x) for x in c.dropna()), reverse=True)
+        return sum(1 for i, x in enumerate(c, 1) if x >= i)
+
+    info[f"피인용 {yr[0]}–{yr[1]}"] = [
+        int(d[(d.year >= flt.start) & (d.year <= flt.end)].cites.fillna(0).sum()) for d in pp.values()]
+    info[f"논문당 피인용 {yr[0]}–{yr[1]}"] = [
+        round(float(d[(d.year >= flt.start) & (d.year <= flt.end)].cites.dropna().mean() or 0), 1)
+        if d[(d.year >= flt.start) & (d.year <= flt.end)].cites.notna().any() else None for d in pp.values()]
+    info["피인용 (경력 전체)"] = [int(d.cites.fillna(0).sum()) for d in pp.values()]
+    info["h-index (top 학회)"] = [_h(d.cites) for d in pp.values()]
+    info["최다 피인용 논문"] = [
+        (f"{d.loc[d.cites.idxmax()].title} ({int(d.loc[d.cites.idxmax()].year)}, {int(d.cites.max()):,}회)"
+         if d.cites.notna().any() else None) for d in pp.values()]
     ui.people_table(ui.add_age(info, after="학문적 나이"), f"{kp}_info", flt)
+    st.caption("피인용 = OpenAlex. h-index는 이 필터의 top 학회 논문만으로 계산 (Google Scholar보다 작음). "
+               "DOI 없는 논문은 제목 매칭이 진행 중이라 일부 비어 있을 수 있습니다.")
 
     piv = s.pivot_table(index="area", columns="name", values="pubs", aggfunc="sum").fillna(0)
     piv = piv.loc[piv.sum(axis=1).sort_values().index]
@@ -112,6 +134,20 @@ def render_compare(names: list[str], kp: str, flt: metrics.Filter | None = None)
                       hovermode="x unified")
     fig.update_xaxes(title="PhD 후 연차", zeroline=True, zerolinecolor="rgba(128,128,128,0.4)")
     _plot(fig, height=380, key=f"{kp}_cum")
+
+    fig = go.Figure()
+    for n in names:
+        d = pp[n].dropna(subset=["cites"]).groupby("year").cites.sum().sort_index().cumsum()
+        if d.empty:
+            continue
+        base = ages.phd_year_eff.get(n) if n in ages.index else None
+        x = d.index - base if base is not None and pd.notna(base) else d.index
+        fig.add_scatter(x=x, y=d.values, name=n, mode="lines+markers",
+                        line=dict(color=color[n], width=2), marker=dict(size=8),
+                        hovertemplate=f"{n}<br>PhD 후 %{{x}}년에 낸 논문까지: 누적 피인용 %{{y:,.0f}}<extra></extra>")
+    fig.update_layout(title="누적 피인용 — 논문 출판 연도 기준 (x=PhD 후 연차, 현재 피인용 수)", hovermode="x unified")
+    fig.update_xaxes(title="PhD 후 연차", zeroline=True, zerolinecolor="rgba(128,128,128,0.4)")
+    _plot(fig, height=380, key=f"{kp}_cumcite")
 
 
 ui.top_venue_status()
