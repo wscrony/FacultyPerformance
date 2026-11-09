@@ -12,4 +12,5 @@ pg = st.navigation({
     ],
     "탐색": [st.Page("app.py", title="검색 · 비교", icon=":material/search:")],
 })
+st.sidebar.caption("Developed by Wook-Shin Han")
 pg.run()
