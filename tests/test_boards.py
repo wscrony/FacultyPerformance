@@ -128,3 +128,24 @@ def test_person_papers_match_candidate_pubs(con):  # noqa: F811
     cand = dict(zip([r[cols.index("name")] for r in rows], [r[cols.index("pubs")] for r in rows]))
     for n, pubs in cand.items():
         assert len(age.person_papers(con, n, f)) == pubs
+
+
+def test_stage_view_postdoc_vs_phd_student(con):  # noqa: F811
+    from fp import institutions
+
+    _ = con.execute(institutions.TYPE_SCHEMA)
+    con.execute("INSERT INTO pii.korean (person, is_korean, score, method) VALUES ('Minji Kim', TRUE, 0.9, 'rule')")
+    con.execute("INSERT INTO pii.affiliation (person, year, institution, country, ror) "
+                "VALUES ('Minji Kim', 2024, 'Uni X', 'kr', 'r1')")
+    con.execute("INSERT INTO oa_inst_type (ror, name, type) VALUES ('r1', 'Uni X', 'education')")
+    age.create_views(con)
+    stage = lambda: dict(con.execute("SELECT person, stage FROM person_stage").fetchall())["Minji Kim"]  # noqa: E731
+    # first top paper 2022 → est PhD 2024 → academic age 2 (this year 2026) → postdoc
+    assert stage() in (age.POSTDOC, age.STUDENT)
+    con.execute("INSERT INTO pii.degree (person, degree, year, source, confidence) VALUES ('Minji Kim','phd',2030,'manual',1)")
+    age.create_views(con)
+    assert stage() == age.STUDENT
+    con.execute("UPDATE oa_inst_type SET type = 'company'")
+    age.create_views(con)
+    assert stage() == age.INDUSTRY
+    assert dict(con.execute("SELECT person, stage FROM person_stage").fetchall()).get("Old") is None  # faculty

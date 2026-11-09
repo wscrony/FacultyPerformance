@@ -1,7 +1,7 @@
 """Academic age + birth-year estimate + cohort percentile. Requires a pii.connect() connection.
 
 Resolution order (docs/SPEC.md §8.3):
-  phd_year : manual > orcid > homepage > llm (model knowledge, shown as estimate)   (else estimated as first top-venue year + PHD_AFTER_FIRST_TOP, i.e. −2)
+  phd_year : manual > orcid > homepage > llm (model knowledge, shown as estimate)   (else estimated as first top-venue year + PHD_AFTER_FIRST_TOP, i.e. +2)
   birth    : manual/homepage birth year  > phd-30 > bs-23 > first top-venue year - 27
 All views are TEMP so nothing derived from PII is persisted into public.duckdb.
 """
@@ -14,7 +14,7 @@ from fp import metrics
 
 # Calibrated on people with known degrees (2026-11-09): first top-venue paper is a median 2 years BEFORE the PhD
 # (IQR −4…+2, n=610); PhD − BS median 7 years (IQR 6–9, n=388). With BS at ~23 → PhD at ~30.
-PHD_AFTER_FIRST_TOP = -2
+PHD_AFTER_FIRST_TOP = 2  # median(phd - first top-venue paper) = +2 on 608 confirmed people
 BIRTH_BEFORE = {"phd": 30, "bs": 23, "first_top": 28}
 SOURCE_RANK = "CASE source WHEN 'manual' THEN 0 WHEN 'orcid' THEN 1 WHEN 'homepage' THEN 2 WHEN 'llm' THEN 3 ELSE 9 END"
 
@@ -146,6 +146,43 @@ def create_views(con, this_year: int | None = None) -> None:
     LEFT JOIN first_top ft ON ft.person  = f.name
     WHERE f.name NOT IN (SELECT person FROM pii.forget);
     """
+    )
+    _create_stage_view(con, y)
+
+
+STUDENT, POSTDOC, SENIOR, INDUSTRY, UNKNOWN = ("박사과정 (추정)", "포닥 (추정)", "연구원·명단 외 교수 (추정)",
+                                               "산업체", "미상")
+POSTDOC_MAX_ACAD_AGE = 6
+STUDENT_MAX_YEARS, POSTDOC_MAX_YEARS = 4, 9  # years since first top paper, when the PhD year is unknown
+
+
+def _create_stage_view(con, y: int) -> None:
+    """Career stage for people not on the CSrankings faculty list: institution type of the latest affiliation
+    (OpenAlex) + academic age. Heuristic — always labelled (추정) except industry."""
+    if _has_table(con, "oa_inst_type"):
+        typ = """(SELECT a.person, any_value(t.type) AS inst_type FROM cur_affil a
+                   JOIN pii.affiliation x ON x.person = a.person AND x.institution = a.institution
+                   JOIN oa_inst_type t ON t.ror = x.ror GROUP BY 1)"""
+    else:
+        typ = "(SELECT NULL::VARCHAR AS person, NULL::VARCHAR AS inst_type WHERE FALSE)"
+    con.execute(
+        f"""
+        CREATE OR REPLACE TEMP VIEW person_stage AS
+        SELECT r.person, t.inst_type,
+               CASE WHEN r.role IN ('KR faculty', 'faculty abroad') THEN NULL
+                    WHEN t.inst_type = 'company' THEN '{INDUSTRY}'
+                    -- PhD year known (orcid/homepage/manual/llm): academic age decides
+                    WHEN pa.phd_year IS NOT NULL AND {y} < pa.phd_year THEN '{STUDENT}'
+                    WHEN pa.phd_year IS NOT NULL AND {y} - pa.phd_year <= {POSTDOC_MAX_ACAD_AGE} THEN '{POSTDOC}'
+                    WHEN pa.phd_year IS NOT NULL THEN '{SENIOR}'
+                    -- otherwise years since the first top-venue paper (PhD ≈ 5–6 years in KR):
+                    WHEN pa.first_top_year IS NULL THEN '{UNKNOWN}'
+                    WHEN {y} - pa.first_top_year <= {STUDENT_MAX_YEARS} THEN '{STUDENT}'
+                    WHEN {y} - pa.first_top_year <= {POSTDOC_MAX_YEARS} THEN '{POSTDOC}'
+                    ELSE '{SENIOR}' END AS stage
+        FROM person_role r LEFT JOIN {typ} t ON t.person = r.person
+        LEFT JOIN person_age pa ON pa.person = r.person
+        """
     )
 
 

@@ -121,13 +121,17 @@ with tab_search:
                  "world": "전 세계 교수"}
     scope = st.radio("검색 범위", list(scope_lbl), format_func=scope_lbl.get, horizontal=True, key="scope",
                      help="포닥·학생 등 교수가 아닌 사람은 '한국인 연구자 전체'에서 나옵니다 (한국인으로 분류된 사람만 추적).")
-    ROLE_KO = {"KR faculty": "국내 교수", "faculty abroad": "해외 교수", "other · KR": "명단 외 · 국내 소속",
-               "other · abroad": "명단 외 · 해외 소속", "other · unknown": "명단 외 · 소속 미상"}
-    roles = None
+    STAGES = ["국내 교수", "해외 교수", age.STUDENT, age.POSTDOC, age.SENIOR, age.INDUSTRY, age.UNKNOWN]
+    roles, loc = None, "전체"
     if scope == "korean":
-        roles = st.multiselect("구분", list(ROLE_KO), format_func=ROLE_KO.get, key="roles",
-                               help="명단 외 = CSrankings 교수 명단에 없는 사람: 포닥·학생·연구원·산업체, 그리고 "
-                                    "명단에 안 올라간 교수(예: 명예교수, 산업체 겸직). 소속은 본인 최근 논문의 OpenAlex 소속")
+        r1, r2 = st.columns([4, 2])
+        roles = r1.multiselect(
+            "구분", STAGES, key="roles",
+            help="교수 = CSrankings 명단. 그 외는 최근 논문 소속(OpenAlex)의 기관 유형과 학문적 나이로 추정: "
+                 f"기업 소속 = 산업체. 박사 연도를 알면 박사 전 = 박사과정, 박사 후 0–{age.POSTDOC_MAX_ACAD_AGE}년 = 포닥. "
+                 f"모르면 첫 top 논문 후 {age.STUDENT_MAX_YEARS}년 이내 = 박사과정, {age.POSTDOC_MAX_YEARS}년 이내 = 포닥. "
+                 "그 이후 = 연구원·명단 외 교수(명예교수·산업체 겸직 등). 추정이라 경계 부근은 틀릴 수 있습니다.")
+        loc = r2.radio("소속 위치", ["전체", "국내", "해외"], horizontal=True, key="loc")
     c1, c2, c3, c4 = st.columns([3, 2, 1, 1])
     schools = sorted({a for _, a in metrics.people(con(), "kr" if scope == "kr" else None)})
     sch = c1.multiselect("소속", schools, help="명단 외 인물은 OpenAlex 기관명을 CSrankings 학교명으로 매핑해 필터합니다")
@@ -149,13 +153,21 @@ with tab_search:
         min_pubs=min_pubs, cohort_window=window, limit=2000 if scope == "world" else None, scope=scope, sort=sort,
     )
     cdf = pd.DataFrame(rows, columns=cols)
+    stg = dict(con().execute("SELECT person, stage FROM person_stage").fetchall())
+    where_ = cdf.role.map({"KR faculty": "국내", "faculty abroad": "해외", "other · KR": "국내",
+                           "other · abroad": "해외"}).fillna("미상")
+    cdf["role"] = [{"KR faculty": "국내 교수", "faculty abroad": "해외 교수"}.get(r) or stg.get(n) or age.UNKNOWN
+                   for r, n in zip(cdf.role, cdf.name)]
+    keep = pd.Series(True, index=cdf.index)
     if roles:
-        cdf = cdf[cdf.role.isin(roles)].copy()
+        keep &= cdf.role.isin(roles)
+    if loc != "전체":
+        keep &= where_ == loc
     if known_only:
-        cdf = cdf[~cdf.age_src.fillna("est").str.startswith("est")].copy()
-    if roles or known_only:
+        keep &= ~cdf.age_src.fillna("est").str.startswith("est")
+    cdf = cdf[keep].copy()
+    if roles or loc != "전체" or known_only:
         cdf["rank"] = range(1, len(cdf) + 1)
-    cdf["role"] = cdf.role.map(ROLE_KO).fillna(cdf.role)
     cdf["추정"] = cdf.age_src.fillna("est").str.startswith("est")
     cdf["나이추정"] = cdf.birth_src.fillna("est").str.startswith("est")
     st.caption(
@@ -176,7 +188,7 @@ with tab_search:
             "cohort_pctl": st.column_config.ProgressColumn("pctl", min_value=0, max_value=100, format="%d"),
             "phd_year": st.column_config.NumberColumn("PhD", format="%d"),
             "birth_year": st.column_config.NumberColumn("출생(추정 포함)", format="%d"),
-            "role": st.column_config.TextColumn("구분", help="other = CSrankings 교수 명단에 없음 (포닥·학생·산업체·명단 외 교수)"),
+            "role": st.column_config.TextColumn("구분", help="교수 외 구분(박사과정·포닥 등)은 소속 기관 유형과 학문적 나이로 추정"),
             "affil_year": st.column_config.NumberColumn("소속 연도", format="%d",
                                                         help="비교수: 소속을 확인한 가장 최근 논문의 연도 (OpenAlex)"),
             "first_au": st.column_config.NumberColumn("1저자"),

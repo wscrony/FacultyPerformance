@@ -130,15 +130,15 @@ def test_age_resolution_priority(con):
         "SELECT person, phd_year_eff, age_source, academic_age, birth_year, birth_source FROM person_age"
     ).fetchall()}
     assert got["Old"] == (1997, "manual", 29, 1967, "est:phd")
-    assert got["Young"] == (2018, "est:first_top", 8, 1992, "est:first_top")  # first top 2020 − 2
-    assert got["Mid"] == (2016, "est:first_top", 10, 1987, "est:bs")
+    assert got["Young"] == (2022, "est:first_top", 4, 1992, "est:first_top")  # first top 2020 + 2
+    assert got["Mid"] == (2020, "est:first_top", 6, 1987, "est:bs")
 
 
 def test_candidates_age_filter_and_cohort(con):
     f = metrics.Filter(start=2016, end=2026)
     rows, cols = age.candidates(con, f, age_max=10)
     names = [r[0] for r in rows]
-    assert names == ["Young", "Mid"]  # Old has acad_age 28 (est from 2000−2), Abroad not kr
+    assert names == ["Young", "Mid"]  # Old has a confirmed PhD (manual 1997), Abroad not kr
     r = dict(zip(cols, rows[0]))
     assert r["cohort_pctl"] == 75.0 and r["cohort_n"] == 2  # Young beats Mid; self counts 0.5
 

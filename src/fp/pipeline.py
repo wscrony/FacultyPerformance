@@ -7,11 +7,11 @@ import traceback
 from datetime import date
 from typing import Callable
 
-STEPS = ["csrankings", "dblp", "korean", "korean_verify", "orcid", "homepage", "degree_llm", "openalex", "citations", "snapshot", "report"]
+STEPS = ["csrankings", "dblp", "korean", "korean_verify", "orcid", "homepage", "degree_llm", "openalex", "inst_types", "citations", "snapshot", "report"]
 
 
 def run_all(log: Callable[[str], None] = print, skip: set[str] | None = None, use_llm: bool = True) -> dict:
-    from fp import pii, pool, report
+    from fp import institutions, pii, pool, report
     from fp.ingest import llm_degree, citations, csrankings, dblp, homepage, openalex, orcid
 
     skip = skip or set()
@@ -57,6 +57,7 @@ def run_all(log: Callable[[str], None] = print, skip: set[str] | None = None, us
         step("homepage", lambda: homepage.update(con, scope="kr", use_llm=use_llm))
         step("degree_llm", lambda: llm_degree.update(con) if use_llm else "skipped (no llm)")
         step("openalex", lambda: openalex.update(con))
+        step("inst_types", lambda: institutions.fetch_types(con))
         step("citations", lambda: citations.update(con))
         step("snapshot", lambda: {"run_id": report.snapshot(con, out)})
         step("report", lambda: {"path": report.write(con)})

@@ -79,3 +79,56 @@ def build(con) -> dict[str, int]:
     con.execute("COMMIT")
     return {"oa_names": len(oa_names), "mapped": len(rows),
             **{m: sum(r[2] == m for r in rows) for m in ("exact", "prefix", "learned")}}
+
+
+TYPE_SCHEMA = """
+CREATE TABLE IF NOT EXISTS oa_inst_type (
+    ror         VARCHAR PRIMARY KEY,
+    name        VARCHAR,
+    type        VARCHAR,   -- OpenAlex: education / company / facility / government / healthcare / nonprofit / ...
+    fetched_at  TIMESTAMP DEFAULT current_timestamp
+);
+"""
+
+
+def fetch_types(con, sleep: float = 0.15, fetch=None) -> dict:
+    """OpenAlex institution type for every ROR seen in affiliations (free singleton calls; public data)."""
+    import time
+
+    import requests
+
+    con.execute(TYPE_SCHEMA)
+    rors = [r[0] for r in con.execute(
+        "SELECT DISTINCT ror FROM pii.affiliation WHERE ror IS NOT NULL "
+        "AND ror NOT IN (SELECT ror FROM oa_inst_type)").fetchall()]
+    sess = requests.Session()
+    sess.headers["User-Agent"] = "FacultyPerformance/0.1 (local research tool)"
+
+    def _get(ror):
+        rid = ror.rstrip("/").split("/")[-1]
+        for attempt in range(4):
+            try:
+                r = sess.get(f"https://api.openalex.org/institutions/ror:{rid}", timeout=30)
+            except requests.RequestException:
+                time.sleep(2 * (attempt + 1))
+                continue
+            if r.status_code == 404:
+                return None, None
+            if r.status_code == 429:
+                time.sleep(int(r.headers.get("Retry-After", "10") or 10))
+                continue
+            if r.ok:
+                js = r.json()
+                return js.get("display_name"), js.get("type")
+            time.sleep(2 * (attempt + 1))
+        return None, None
+
+    fetch = fetch or _get
+    rows = []
+    for ror in rors:
+        name, typ = fetch(ror)
+        rows.append((ror, name, typ))
+        time.sleep(sleep)
+    if rows:
+        con.executemany("INSERT OR REPLACE INTO oa_inst_type (ror, name, type) VALUES (?, ?, ?)", rows)
+    return {"fetched": len(rows), "typed": sum(r[2] is not None for r in rows)}
