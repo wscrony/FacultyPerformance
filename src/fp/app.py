@@ -117,8 +117,17 @@ with tab_school:
 # ───────────────────────── 교수·후보자 검색 ─────────────────────────
 
 with tab_search:
-    scope_lbl = {"kr": "국내 교수", "korean": "한국인 연구자 전체 (해외 교수·포닥·학생 포함)", "world": "전 세계 교수"}
-    scope = st.radio("검색 범위", list(scope_lbl), format_func=scope_lbl.get, horizontal=True, key="scope")
+    scope_lbl = {"kr": "국내 교수", "korean": "한국인 연구자 전체 (해외 교수·포닥·학생·산업체 포함)",
+                 "world": "전 세계 교수"}
+    scope = st.radio("검색 범위", list(scope_lbl), format_func=scope_lbl.get, horizontal=True, key="scope",
+                     help="포닥·학생 등 교수가 아닌 사람은 '한국인 연구자 전체'에서 나옵니다 (한국인으로 분류된 사람만 추적).")
+    ROLE_KO = {"KR faculty": "국내 교수", "faculty abroad": "해외 교수", "other · KR": "명단 외 · 국내 소속",
+               "other · abroad": "명단 외 · 해외 소속", "other · unknown": "명단 외 · 소속 미상"}
+    roles = None
+    if scope == "korean":
+        roles = st.multiselect("구분", list(ROLE_KO), format_func=ROLE_KO.get, key="roles",
+                               help="명단 외 = CSrankings 교수 명단에 없는 사람: 포닥·학생·연구원·산업체, 그리고 "
+                                    "명단에 안 올라간 교수(예: 명예교수, 산업체 겸직). 소속은 본인 최근 논문의 OpenAlex 소속")
     c1, c2, c3, c4 = st.columns([3, 2, 1, 1])
     schools = sorted({a for _, a in metrics.people(con(), "kr" if scope == "kr" else None)})
     sch = c1.multiselect("소속", schools, help="명단 외 인물은 OpenAlex 기관명을 CSrankings 학교명으로 매핑해 필터합니다")
@@ -137,12 +146,16 @@ with tab_search:
         con(), G,
         age_min=age_rng[0] if age_rng[0] > 0 else None,
         age_max=age_rng[1] if age_rng[1] < 45 else None,
-        min_pubs=min_pubs, cohort_window=window, limit=None if scope == "kr" else 2000, scope=scope, sort=sort,
+        min_pubs=min_pubs, cohort_window=window, limit=2000 if scope == "world" else None, scope=scope, sort=sort,
     )
     cdf = pd.DataFrame(rows, columns=cols)
+    if roles:
+        cdf = cdf[cdf.role.isin(roles)].copy()
     if known_only:
         cdf = cdf[~cdf.age_src.fillna("est").str.startswith("est")].copy()
+    if roles or known_only:
         cdf["rank"] = range(1, len(cdf) + 1)
+    cdf["role"] = cdf.role.map(ROLE_KO).fillna(cdf.role)
     cdf["추정"] = cdf.age_src.fillna("est").str.startswith("est")
     cdf["나이추정"] = cdf.birth_src.fillna("est").str.startswith("est")
     st.caption(
