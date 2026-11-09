@@ -114,8 +114,10 @@ def board_filter(key: str, default_years: int = 5, credit: bool = True):
     title = {a: t for a, t, _ in areas}
     c1, c2, c3, c4 = st.columns([2, 2, 3, 2])
     yr = c1.slider("기간", 2000, THIS_YEAR, (THIS_YEAR - default_years, THIS_YEAR), key=f"{key}_yr")
-    cats = c2.multiselect("분야 그룹", ["ai", "systems", "theory", "interdisciplinary"], key=f"{key}_cat")
-    pool = [a for a, _, c in areas if not cats or c in cats]
+    from fp.boards import AREA_FIELD, FIELDS
+
+    cats = c2.multiselect("분야", list(FIELDS), format_func=lambda k: f"{k} · {FIELDS[k][0]}", key=f"{key}_cat")
+    pool = [a for a, _, _ in areas if not cats or AREA_FIELD.get(a, "기타") in cats]
     picked = c3.multiselect("세부 분야", pool, format_func=lambda a: f"{title[a]}", key=f"{key}_area")
     venues = c4.multiselect("학회 (선택 시 분야 무시)", _venues(), key=f"{key}_venue")
     cr = "any"

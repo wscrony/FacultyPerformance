@@ -268,12 +268,12 @@ def school_profile(con, school: str, f: BF):
     return con.execute(
         f"""
         WITH fac AS (SELECT DISTINCT name FROM cs_faculty WHERE affiliation = ?),
-        pubs AS (SELECT a.name, v.area_title, p.year FROM dblp_authorship a JOIN dblp_paper p USING (key)
+        pubs AS (SELECT a.name, {_FIELD_SQL} AS field, p.year FROM dblp_authorship a JOIN dblp_paper p USING (key)
                  JOIN venue v ON v.venue = p.venue WHERE a.name IN (SELECT name FROM fac) AND NOT v.next_tier)
         SELECT f.name, pa.academic_age, pa.age_source,
                count(*) FILTER (WHERE pubs.year BETWEEN ? AND ?) AS papers_window,
                count(pubs.year) AS papers_career,
-               mode(pubs.area_title) AS main_area
+               mode(pubs.field) AS main_area
         FROM fac f LEFT JOIN pubs ON pubs.name = f.name LEFT JOIN person_age pa ON pa.person = f.name
         GROUP BY ALL ORDER BY papers_window DESC, f.name
         """,
@@ -331,4 +331,39 @@ def talent_matrix(con, years: int = 5):
         WHERE r.is_korean AND a.academic_age IS NOT NULL
         """,
         [years],
+    ).df()
+
+
+# Department field taxonomy (Applied / Foundational Computing), mapped from CSrankings areas.
+FIELDS = {
+    "HCI": ("Human-Computer Interaction", "Applied", ["chi"]),
+    "NLP": ("Natural Language Processing", "Applied", ["nlp"]),
+    "VC": ("Visual Computing", "Applied", ["vision", "graph", "visualization"]),
+    "DS": ("Data Science (DB, Web+IR)", "Applied", ["mod", "inforet"]),
+    "ML": ("Machine Learning (ML, AI)", "Applied", ["mlmining", "ai"]),
+    "TC": ("Theory of Computing", "Foundational", ["act", "crypt", "log"]),
+    "SS": ("Secure Systems", "Foundational", ["sec"]),
+    "CS": ("Computing Systems", "Foundational", ["arch", "bed", "da", "hpc", "ops", "metrics"]),
+    "NS": ("Network Systems", "Foundational", ["comm", "mobile"]),
+    "SP": ("Software Eng. & Prog. Languages", "Foundational", ["soft", "plan"]),
+    "기타": ("Robotics, Comp. Bio, ECom, CSEd", "Other", ["robotics", "bio", "ecom", "csed"]),
+}
+AREA_FIELD = {a: k for k, (_, _, areas) in FIELDS.items() for a in areas}
+_FIELD_SQL = "CASE v.area " + " ".join(f"WHEN '{a}' THEN '{k}'" for a, k in AREA_FIELD.items()) + " ELSE '기타' END"
+
+
+def kr_field_matrix(con, f: BF):
+    """KR institutions × department field: distinct papers and rank among KR institutions per field."""
+    ensure_pinst(con)
+    w, p = f.where("x")
+    return con.execute(
+        f"""
+        WITH t AS (SELECT x.institution, {_FIELD_SQL} AS field, count(DISTINCT x.key) AS papers
+                   FROM pinst x JOIN venue v ON v.venue = x.venue
+                   WHERE {w} AND x.country = 'kr' GROUP BY 1, 2)
+        SELECT *, rank() OVER (PARTITION BY field ORDER BY papers DESC) AS kr_rank,
+               100.0 * papers / sum(papers) OVER (PARTITION BY institution) AS pct
+        FROM t
+        """,
+        p,
     ).df()

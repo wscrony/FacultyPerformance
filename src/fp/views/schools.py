@@ -33,17 +33,20 @@ c1, c2 = st.columns([3, 2])
 with c1:
     tr = tr[tr.year >= max(2000, f.start - 15)]
     if not tr.empty:
-        top_areas = tr.groupby("area").papers.sum().sort_values(ascending=False)
-        keep = list(top_areas.index[:7])
-        tr["area2"] = tr.area.where(tr.area.isin(keep), "기타")
-        agg = tr.groupby(["year", "area2"]).papers.sum().reset_index()
+        tr["field"] = tr.area_code.map(B.AREA_FIELD).fillna("기타")
+        agg = tr.groupby(["year", "field"]).papers.sum().reset_index()
         fig = go.Figure()
-        for i, a in enumerate(keep + (["기타"] if "기타" in set(agg.area2) else [])):
-            s = agg[agg.area2 == a]
+        FK = [k for k in B.FIELDS if k != "기타"]
+        for i, a in enumerate(FK + ["기타"]):
+            s = agg[agg.field == a]
+            if s.empty:
+                continue
+            color = ui.gray() if a == "기타" else ui.series()[i % 8]
             fig.add_bar(x=s.year, y=s.papers, name=a,
-                        marker=dict(color=ui.gray() if a == "기타" else ui.series()[i], line=dict(width=1, color="rgba(255,255,255,0.6)")),
-                        hovertemplate=f"{a}<br>%{{x}}: %{{y}}편<extra></extra>")
-        fig.update_layout(barmode="stack", bargap=0.2, title=f"{school} · 연도별 논문 수 (분야별, 상위 7개 분야 + 기타)")
+                        marker=dict(color=color, pattern=dict(shape="/" if 8 <= i < 10 else "", fillmode="replace", bgcolor=color, fgcolor="rgba(255,255,255,0.8)", solidity=0.3),
+                                    line=dict(width=1, color="rgba(255,255,255,0.6)")),
+                        hovertemplate=f"{a} · {B.FIELDS[a][0]}<br>%{{x}}: %{{y}}편<extra></extra>")
+        fig.update_layout(barmode="stack", bargap=0.2, title=f"{school} · 연도별 논문 수 (10개 분야 + 기타)")
         fig.add_vrect(x0=f.start - 0.5, x1=f.end + 0.5, fillcolor="rgba(128,128,128,0.08)", line_width=0,
                       annotation_text="선택 기간", annotation_position="top left")
         ui.plot(fig, height=420, key="s_trend")
@@ -74,35 +77,56 @@ st.dataframe(
     },
 )
 
-# ── area mix across schools ──
-st.subheader("학교별 분야 구성")
-mix = c.execute(
-    f"""
-    SELECT x.institution, v.category, count(DISTINCT x.key) AS papers
-    FROM pinst x JOIN venue v ON v.venue = x.venue
-    WHERE {f.where('x')[0]} AND x.country = 'kr' GROUP BY 1, 2
-    """,
-    f.where("x")[1],
-).df()
-if not mix.empty:
-    order = mix.groupby("institution").papers.sum().sort_values(ascending=False).index[:15]
-    mix = mix[mix.institution.isin(order)]
-    tot = mix.groupby("institution").papers.transform("sum")
-    mix["pct"] = 100 * mix.papers / tot
-    cats = ["ai", "systems", "theory", "interdisciplinary"]
-    names = {"ai": "AI", "systems": "Systems", "theory": "Theory", "interdisciplinary": "Interdisciplinary"}
+# ── department fields: who leads each field ──
+st.subheader("분야별 국내 순위")
+st.caption("분야 = " + " · ".join(f"{k} ({v[0]})" for k, v in B.FIELDS.items())
+           + ". 한 논문이 여러 학교에 공동 귀속될 수 있습니다.")
+fm = B.kr_field_matrix(c, f)
+FK = [k for k in B.FIELDS if k != "기타"]
+if not fm.empty:
+    order = list(fm.groupby("institution").papers.sum().sort_values(ascending=False).index[:15])
+    # leaderboard: top 5 per field
+    lead = fm[fm.field.isin(FK)].sort_values(["field", "kr_rank"])
+    cols = st.columns(5)
+    for i, k in enumerate(FK):
+        d = lead[lead.field == k].head(5)
+        with cols[i % 5].container(border=True):
+            st.markdown(f"**{k}** · {B.FIELDS[k][0]}")
+            for r in d.itertuples():
+                st.markdown(f"{int(r.kr_rank)}. {ui.short(r.institution)} — {int(r.papers)}편")
+    # rank heatmap: schools × fields (cell = KR rank, color = papers)
+    sub = fm[fm.institution.isin(order) & fm.field.isin(FK)]
+    piv = sub.pivot_table(index="institution", columns="field", values="papers").reindex(index=order, columns=FK)
+    rk = sub.pivot_table(index="institution", columns="field", values="kr_rank").reindex(index=order, columns=FK)
+    fig = go.Figure(go.Heatmap(
+        z=piv.values, x=FK, y=[ui.short(o) for o in order], colorscale=ui.seq_scale(), xgap=2, ygap=2,
+        text=[["" if pd.isna(n) else f"{int(r)}위 · {int(n)}" for n, r in zip(prow, rrow)]
+              for prow, rrow in zip(piv.values, rk.values)],
+        texttemplate="%{text}", customdata=[[B.FIELDS[k][0] for k in FK]] * len(order),
+        hovertemplate="%{y} · %{customdata}<br>%{z:.0f}편<extra></extra>", colorbar=dict(title="편"),
+    ))
+    fig.update_yaxes(autorange="reversed")
+    fig.update_layout(title="논문 수 상위 15개 국내 기관 × 분야 (셀 = 국내 순위 · 논문 수, 색 = 논문 수)")
+    ui.plot(fig, height=620, legend=False, key="s_fieldrank")
+
+    # field mix (100% stacked): Applied fields in one hue family order, Foundational next, 기타 gray
+    st.subheader("학교별 분야 구성")
+    tot = fm.groupby("institution").papers.sum()
     fig = go.Figure()
-    for i, k in enumerate(cats):
-        s = mix[mix.category == k].set_index("institution").reindex(order)
-        fig.add_bar(y=s.index, x=s.pct, name=names[k], orientation="h",
-                    marker=dict(color=ui.series()[i], line=dict(width=2, color="rgba(255,255,255,0.9)" if ui.mode() == "light" else "#1a1a19")),
-                    customdata=s.papers, text=s.pct.round(0).astype("Int64").astype(str) + "%", textposition="inside",
-                    insidetextanchor="middle",
-                    hovertemplate=f"%{{y}}<br>{names[k]}: %{{x:.1f}}% (%{{customdata:.0f}}편)<extra></extra>")
-    fig.update_layout(barmode="stack", title="논문 수 상위 15개 국내 기관의 분야 그룹 비중 (%)")
+    pal = ui.series()
+    for i, k in enumerate(FK + ["기타"]):
+        d = fm[fm.field == k].set_index("institution").reindex(order).fillna({"pct": 0, "papers": 0})
+        color = ui.gray() if k == "기타" else pal[i % len(pal)]
+        fig.add_bar(y=[ui.short(o) for o in order], x=d.pct, name=k, orientation="h",
+                    marker=dict(color=color, pattern=dict(shape="/" if i >= 8 and k != "기타" else "", fillmode="replace", bgcolor=color, fgcolor="rgba(255,255,255,0.8)", solidity=0.3),
+                                line=dict(width=2, color="rgba(255,255,255,0.9)" if ui.mode() == "light" else "#1a1a19")),
+                    customdata=d.papers, text=[f"{k}" if v >= 7 else "" for v in d.pct], textposition="inside",
+                    insidetextanchor="middle", textfont=dict(color=ui.ink(color)),
+                    hovertemplate=f"%{{y}}<br>{k}: %{{x:.1f}}% (%{{customdata:.0f}}편)<extra></extra>")
+    fig.update_layout(barmode="stack", title="분야 비중 (%, 슬래시 무늬 = 9·10번째 분야, 회색 = 기타)")
     fig.update_yaxes(autorange="reversed")
     fig.update_xaxes(ticksuffix="%", range=[0, 100])
-    ui.plot(fig, height=560, key="s_mix")
+    ui.plot(fig, height=600, key="s_mix")
 
 # ── collaboration ──
 st.subheader("국내 기관 간 협업")
