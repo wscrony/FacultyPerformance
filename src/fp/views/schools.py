@@ -93,11 +93,37 @@ def fac_table(df, label: str, key: str, field: str):
     )
 
 
+# main field = field with most papers in the window (ties → taxonomy order)
+fw = ff[ff.papers_window > 0].copy()
+fw["fo"] = fw.field.map({k: n for n, k in enumerate(B.FIELDS)})
+main_all = fw.sort_values(["name", "papers_window", "fo"], ascending=[True, False, True]).drop_duplicates("name")
+info["main_area"] = info.index.map(main_all.set_index("name").field)
+
 with tabs[0]:
-    d = active.rename(columns={"papers_window": "papers"})
-    d = with_kr_rank(d.assign(rank=range(1, len(d) + 1)), "전체")
-    fac_table(d[["rank", "kr_rank", "name", "papers", "main_area", "academic_age", "age_source"]],
-              f"논문 {f.start}–{f.end}", "s_fac_all", "전체")
+    main = main_all
+    main = main.rename(columns={"field": "main_field", "papers_window": "papers"})[["name", "main_field", "papers"]]
+    main["rank"] = main.groupby("main_field").papers.rank(method="min", ascending=False).astype(int)
+    main = main.join(kr[["kr_rank", "kr_n"]], on=["name", "main_field"])
+    main["kr_rank"] = [f"{int(a)}위 / {int(n)}명" if pd.notna(a) else "" for a, n in zip(main.kr_rank, main.kr_n)]
+    main = main.join(info[["papers_window", "academic_age", "age_source"]], on="name")
+    main["fo"] = main.main_field.map({k: n for n, k in enumerate(B.FIELDS)})
+    main = main.sort_values(["fo", "rank"])
+    mx = int(main.papers.max() or 1) if len(main) else 1
+    st.caption(f"주 분야 = {f.start}–{f.end} 논문이 가장 많은 분야. 순위는 그 분야 논문 수 기준.")
+    st.dataframe(
+        main[["main_field", "kr_rank", "rank", "name", "papers", "papers_window", "academic_age", "age_source"]],
+        hide_index=True, width="stretch", height=420, key="s_fac_all",
+        column_config={
+            "main_field": "주 분야",
+            "kr_rank": st.column_config.TextColumn("분야 내 국내 순위",
+                                                   help="국내 대학 교수(CSrankings) 중 같은 분야·기간 논문 수 순위"),
+            "rank": st.column_config.NumberColumn("분야 내 교내 순위", width="small"), "name": "이름",
+            "papers": st.column_config.ProgressColumn(f"주 분야 논문 {f.start}–{f.end}", format="%d",
+                                                      min_value=0, max_value=mx),
+            "papers_window": st.column_config.NumberColumn("전체 분야 논문"),
+            "academic_age": st.column_config.NumberColumn("학문적 나이"), "age_source": "나이 출처",
+        },
+    )
 for t, k in zip(tabs[1:], fields_here):
     with t:
         d = ff[(ff.field == k) & (ff.papers_window > 0)].sort_values("papers_window", ascending=False)
