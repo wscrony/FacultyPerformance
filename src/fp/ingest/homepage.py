@@ -299,14 +299,19 @@ def regex_extract(snippet: str) -> dict:
     return out
 
 
-def llm_extractor(model: str = "haiku") -> Callable[[str, str, str], dict]:
+def llm_cli(model: str = "haiku"):
+    """Local claude CLI via ClaudeWrapper, all tools disabled, no MCP, no session persistence."""
     root = os.environ.get("CLAUDE_WRAPPER_ROOT", str(Path(__file__).resolve().parents[4] / "ClaudeWrapper"))
     if root not in sys.path:
         sys.path.insert(0, root)
     from claude_api import Claude  # type: ignore
 
-    cli = Claude(model, cwd=tempfile.gettempdir(), timeout=180)
-    extra = ["--tools", "", "--strict-mcp-config", "--no-session-persistence"]
+    cli = Claude(model, cwd=tempfile.gettempdir(), timeout=300)
+    return cli, ["--tools", "", "--strict-mcp-config", "--no-session-persistence"]
+
+
+def llm_extractor(model: str = "haiku") -> Callable[[str, str, str], dict]:
+    cli, extra = llm_cli(model)
 
     def run(name: str, affiliation: str, snippet: str) -> dict:
         prompt = PROMPT.format(name=name, affiliation=affiliation, snippet=snippet)

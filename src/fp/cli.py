@@ -192,6 +192,43 @@ def run_app(port: int = typer.Option(8501)):
     ])
 
 
+@update_app.command("dblp")
+def update_dblp(force: bool = typer.Option(False)):
+    """Parse CSrankings' filtered DBLP (all authors, top venues) for the loaded csrankings commit."""
+    from fp.ingest import dblp
+
+    con = db.connect()
+    row = con.execute("SELECT version FROM snapshot WHERE source='csrankings' ORDER BY fetched_at DESC LIMIT 1").fetchone()
+    if not row:
+        raise typer.BadParameter("run `fp update csrankings` first")
+    sha = row[0]
+    done = con.execute("SELECT 1 FROM snapshot WHERE source='dblp' AND version=?", [sha]).fetchone()
+    if done and not force:
+        console.print(f"dblp already loaded for {sha[:12]}")
+        return
+    src = dblp.download(sha)
+    out = dblp.snapshot_dir(sha)
+    if force or not (out / "authorship.parquet").exists():
+        console.print(dblp.parse(src, out, progress=lambda n: print(f"dblp: {n} records", flush=True)))
+    console.print(dblp.load(con, sha))
+    console.print({"parity_vs_csrankings_kr": dblp.check_against_csrankings(con)})
+
+
+@update_app.command("korean")
+def update_korean(
+    since: int = typer.Option(THIS_YEAR - 10, help="pool: active since this year"),
+    min_pubs: int = typer.Option(3, help="pool: min top-venue papers since --since"),
+    no_llm: bool = typer.Option(False, "--no-llm", help="rules + co-authorship only"),
+):
+    """Classify the candidate pool as Korean / not (stored in the encrypted PII DB)."""
+    from fp import pii, pool
+
+    con = pii.connect()
+    with _progress("korean-llm", every=1) as cb:
+        stats = pool.classify(con, since=since, min_pubs=min_pubs, use_llm=not no_llm, progress=cb)
+    console.print(stats)
+
+
 @update_app.command("orcid")
 def update_orcid(
     scope: str = typer.Option("kr", help="kr = faculty at KR institutions; world = all csrankings"),
@@ -233,7 +270,9 @@ def update_homepage(
 @app.command()
 def candidates(
     start: int = typer.Option(THIS_YEAR - 5, "--from"), end: int = End, area: Optional[str] = Area,
-    next_tier: bool = NextTier, country: str = Country, school: Optional[str] = School,
+    next_tier: bool = NextTier,
+    scope: str = typer.Option("kr", help="kr = KR faculty; korean = Korean researchers anywhere; world = all faculty"),
+    school: Optional[str] = School,
     age_min: Optional[int] = typer.Option(None, help="min academic age (years since PhD)"),
     age_max: Optional[int] = typer.Option(None, help="max academic age"),
     min_adj: float = typer.Option(0.0, help="min adjusted count in the year range"),
@@ -246,30 +285,31 @@ def candidates(
 
     con = pii.connect(read_only=True)
     rows, cols = age.candidates(
-        con, _filter(start, end, area, next_tier, country, school),
-        age_min=age_min, age_max=age_max, min_adj=min_adj, cohort_window=window, limit=limit,
+        con, _filter(start, end, area, next_tier, None, school),
+        age_min=age_min, age_max=age_max, min_adj=min_adj, cohort_window=window, limit=limit, scope=scope,
     )
     if csv_out and not include_pii:
         keep = [i for i, c in enumerate(cols) if c not in age.PII_COLUMNS]
         rows, cols = [[r[i] for i in keep] for r in rows], [cols[i] for i in keep]
     elif not csv_out:
         rows, cols = _compact_age(rows, cols)
-        console.print("[dim]* = estimated (no PhD/birth year on file); pctl vs KR faculty with acad age ± window[/dim]")
-    _show(rows, cols, f"Candidates {school or country} {start}-{end} {area or 'all'} age {age_min}-{age_max}", csv_out)
+        console.print("[dim]* = estimated age; pctl vs KR faculty with acad age ± window; 1st/last = author position[/dim]")
+    _show(rows, cols, f"Candidates [{scope}] {school or ''} {start}-{end} {area or 'all'} age {age_min}-{age_max}", csv_out)
 
 
 def _compact_age(rows, cols):
     """Terminal view: fold *_src columns into a '*' marker on estimated values."""
     ix = {c: i for i, c in enumerate(cols)}
-    out_cols = ["name", "institution", "acad_age", "birth", "pubs", "adj", "pctl", "cohort_n"]
+    out_cols = ["name", "institution", "role", "acad_age", "birth", "pubs", "adj", "1st/last", "pctl", "n"]
     out = []
     for r in rows:
-        est_age = (r[ix["age_src"]] or "").startswith("est") or r[ix["age_src"]] is None
-        est_birth = (r[ix["birth_src"]] or "").startswith("est") or r[ix["birth_src"]] is None
+        est_age = r[ix["age_src"]] is None or r[ix["age_src"]].startswith("est")
+        est_birth = r[ix["birth_src"]] is None or r[ix["birth_src"]].startswith("est")
         mark = lambda v, est: "-" if v is None else f"{v}{'*' if est else ''}"
         out.append([
-            r[ix["name"]], r[ix["institution"]], mark(r[ix["acad_age"]], est_age),
+            r[ix["name"]], r[ix["institution"]], r[ix["role"]], mark(r[ix["acad_age"]], est_age),
             mark(r[ix["birth_year"]], est_birth), r[ix["pubs"]], r[ix["adj"]],
+            f"{r[ix['first_au']]}/{r[ix['last_au']]}",
             "-" if r[ix["cohort_pctl"]] is None else int(r[ix["cohort_pctl"]]), r[ix["cohort_n"]],
         ])
     return out, out_cols

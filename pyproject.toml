@@ -3,7 +3,7 @@ name = "faculty-performance"
 version = "0.1.0"
 description = "Korean CS faculty & candidate publication analytics (local only)"
 requires-python = ">=3.11"
-dependencies = ["duckdb>=1.4", "requests>=2.31", "typer>=0.12", "rich>=13", "beautifulsoup4>=4.12", "pypdf>=4"]
+dependencies = ["duckdb>=1.4", "requests>=2.31", "typer>=0.12", "rich>=13", "beautifulsoup4>=4.12", "pypdf>=4", "lxml>=5", "pyarrow>=15"]
 
 [project.optional-dependencies]
 app = ["streamlit>=1.38", "plotly>=5"]

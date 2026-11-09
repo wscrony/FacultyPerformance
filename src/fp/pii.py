@@ -54,6 +54,14 @@ CREATE TABLE IF NOT EXISTS pii.note (
     note        VARCHAR,
     created_at  TIMESTAMP DEFAULT current_timestamp
 );
+CREATE TABLE IF NOT EXISTS pii.korean (
+    person     VARCHAR PRIMARY KEY,
+    is_korean  BOOLEAN,           -- NULL = undecided
+    score      DOUBLE,
+    method     VARCHAR,           -- rule / coauthor / llm / manual
+    reason     VARCHAR,
+    updated_at TIMESTAMP DEFAULT current_timestamp
+);
 CREATE TABLE IF NOT EXISTS pii.forget (
     person      VARCHAR PRIMARY KEY,   -- never re-collect
     created_at  TIMESTAMP DEFAULT current_timestamp
@@ -102,7 +110,7 @@ def forgotten(con) -> set[str]:
 
 def forget(con, person: str) -> dict[str, int]:
     out = {}
-    for t in ("degree", "birth", "fetch_log", "note", "raw"):
+    for t in ("degree", "birth", "fetch_log", "note", "raw", "korean"):
         out[t] = len(con.execute(f"DELETE FROM pii.{t} WHERE person = ? RETURNING 1", [person]).fetchall())
     con.execute("INSERT OR IGNORE INTO pii.forget (person) VALUES (?)", [person])
     return out
