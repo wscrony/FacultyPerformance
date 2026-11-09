@@ -97,6 +97,12 @@ def school_ranking(con, f: Filter):
 def school_citations(con, f: Filter):
     """Per institution: OpenAlex citations of the distinct papers (dblp key) its current faculty authored within
     the filter. A paper co-authored by two faculty of the same school counts once. Needs the paper_cites view."""
+    import pandas as pd
+
+    have = {r[0] for r in con.execute("SELECT table_name FROM duckdb_tables() UNION SELECT view_name FROM duckdb_views()")
+            .fetchall()}
+    if not {"dblp_authorship", "dblp_paper", "paper_cites"} <= have:
+        return pd.DataFrame(columns=["institution", "cites", "cited_papers", "papers"])
     where, params = f.where("p", "v", "i")
     where = where.replace("p.dept", "x.dept")
     return con.execute(
