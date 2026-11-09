@@ -1,0 +1,63 @@
+"""`fp update all`: the periodic pipeline. Each step is isolated — one failing source never blocks the rest."""
+
+from __future__ import annotations
+
+import time
+import traceback
+from datetime import date
+from typing import Callable
+
+STEPS = ["csrankings", "dblp", "korean", "orcid", "homepage", "openalex", "citations", "snapshot", "report"]
+
+
+def run_all(log: Callable[[str], None] = print, skip: set[str] | None = None, use_llm: bool = True) -> dict:
+    from fp import pii, pool, report
+    from fp.ingest import citations, csrankings, dblp, homepage, openalex, orcid
+
+    skip = skip or set()
+    out: dict[str, object] = {}
+
+    def step(name, fn):
+        if name in skip:
+            out[name] = "skipped"
+            return
+        t = time.time()
+        log(f"[{name}] start")
+        try:
+            out[name] = fn()
+            log(f"[{name}] done in {time.time() - t:.0f}s: {out[name]}")
+        except Exception as e:  # keep going; the report shows what failed
+            out[name] = f"FAILED: {e!r}"
+            log(f"[{name}] FAILED\n{traceback.format_exc()}")
+
+    sha_box: dict[str, str] = {}
+
+    def do_csrankings():
+        sha, counts = csrankings.update()
+        sha_box["sha"] = sha
+        return {"sha": sha[:12], "loaded": counts is not None}
+
+    step("csrankings", do_csrankings)
+
+    con = pii.connect()
+    try:
+        def do_dblp():
+            sha = sha_box.get("sha") or con.execute(
+                "SELECT version FROM snapshot WHERE source='csrankings' ORDER BY fetched_at DESC LIMIT 1").fetchone()[0]
+            if con.execute("SELECT 1 FROM snapshot WHERE source='dblp' AND version=?", [sha]).fetchone():
+                return {"sha": sha[:12], "loaded": False}
+            src = dblp.download(sha)
+            dblp.parse(src, dblp.snapshot_dir(sha))
+            return {"sha": sha[:12], **dblp.load(con, sha)}
+
+        step("dblp", do_dblp)
+        step("korean", lambda: pool.classify(con, since=date.today().year - 10, use_llm=use_llm))
+        step("orcid", lambda: {s: orcid.update(con, scope=s) for s in ("kr", "korean")})
+        step("homepage", lambda: homepage.update(con, scope="kr", use_llm=use_llm))
+        step("openalex", lambda: openalex.update(con))
+        step("citations", lambda: citations.update(con))
+        step("snapshot", lambda: {"run_id": report.snapshot(con, out)})
+        step("report", lambda: {"path": report.write(con)})
+    finally:
+        con.close()
+    return out

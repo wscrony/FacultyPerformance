@@ -237,3 +237,24 @@ def test_institution_mapping(con):  # noqa: F811
     assert m["Purdue University West Lafayette"] == "Purdue University"
     assert m["The Korea University"] == "Korea University"
     assert "Korea University of Technology and Education" not in m
+
+
+def test_snapshot_diff_report(con, tmp_path):  # noqa: F811
+    from fp import report
+
+    _add_author_pub(con)
+    pool.classify(con, since=2016, min_pubs=1, use_llm=False)
+    assert report.diff(con) == {}
+    r1 = report.snapshot(con)
+    con.execute("UPDATE cs_faculty SET affiliation = 'Abroad U' WHERE name = 'Mid'")
+    con.execute("INSERT INTO author_pub VALUES ('Young', 'sigmod', 2025, 4, 2.0, 0, 4)")
+    con.execute("INSERT INTO pii.degree (person, degree, year, source, confidence) VALUES ('Old', 'phd', 1990, 'orcid', 1)")
+    r2 = report.snapshot(con)
+    d = report.diff(con)
+    assert d["runs"] == [r1, r2]
+    assert [x[0] for x in d["kr_faculty_left"]] == ["Mid"]
+    assert any(x[0] == "Mid" for x in d["moved"])
+    assert [x[0] for x in d["output_up"]] == ["Young"]
+    assert [x[0] for x in d["age_confirmed"]] == ["Old"]
+    md = report.to_markdown(d)
+    assert "소속 변경 (1)" in md and "| Mid |" in md

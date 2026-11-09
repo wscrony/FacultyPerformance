@@ -104,6 +104,9 @@ def connect(read_only: bool = False) -> duckdb.DuckDBPyConnection:
         from fp.ingest.openalex import PII_SCHEMA as OA_SCHEMA
 
         con.execute(OA_SCHEMA)
+        from fp.report import SCHEMA as RUN_SCHEMA
+
+        con.execute(RUN_SCHEMA)
     return con
 
 
@@ -113,7 +116,7 @@ def forgotten(con) -> set[str]:
 
 def forget(con, person: str) -> dict[str, int]:
     out = {}
-    for t in ("degree", "birth", "fetch_log", "note", "raw", "korean", "affiliation"):
+    for t in ("degree", "birth", "fetch_log", "note", "raw", "korean", "affiliation", "run_person"):
         out[t] = len(con.execute(f"DELETE FROM pii.{t} WHERE person = ? RETURNING 1", [person]).fetchall())
     con.execute("INSERT OR IGNORE INTO pii.forget (person) VALUES (?)", [person])
     return out

@@ -6,6 +6,8 @@ import csv
 from datetime import date
 from typing import Optional
 
+from datetime import datetime
+
 import typer
 from rich.console import Console
 from rich.table import Table
@@ -190,6 +192,63 @@ def run_app(port: int = typer.Option(8501)):
         "--server.address", "127.0.0.1", "--server.port", str(port),
         "--server.headless", "true", "--browser.gatherUsageStats", "false",
     ])
+
+
+@update_app.command("all")
+def update_all(
+    skip: Optional[str] = typer.Option(None, help="comma-separated steps to skip"),
+    no_llm: bool = typer.Option(False, "--no-llm"),
+):
+    """Run the whole periodic pipeline, snapshot tracked people, write the change report to exports/."""
+    from fp import pipeline
+
+    stamp = lambda m: print(f"{datetime.now():%Y-%m-%d %H:%M:%S} {m}", flush=True)
+    out = pipeline.run_all(log=stamp, skip=set((skip or "").split(",")) - {""}, use_llm=not no_llm)
+    failed = [k for k, v in out.items() if isinstance(v, str) and v.startswith("FAILED")]
+    stamp(f"finished; failed steps: {failed or 'none'}")
+    if failed:
+        raise typer.Exit(1)
+
+
+schedule_app = typer.Typer(help="Periodic `fp update all` via a user launchd agent (macOS)")
+app.add_typer(schedule_app, name="schedule")
+
+
+@schedule_app.command("install")
+def schedule_install(
+    weekday: int = typer.Option(0, help="0 = Sunday … 6 = Saturday"),
+    hour: int = typer.Option(3), minute: int = typer.Option(0),
+):
+    from fp import schedule
+
+    console.print(f"installed {schedule.install(weekday, hour, minute)}")
+
+
+@schedule_app.command("uninstall")
+def schedule_uninstall():
+    from fp import schedule
+
+    console.print("removed" if schedule.uninstall() else "not installed")
+
+
+@schedule_app.command("status")
+def schedule_status():
+    from fp import schedule
+
+    console.print(schedule.status())
+
+
+@app.command("report")
+def report_cmd(snapshot: bool = typer.Option(False, help="take a snapshot first (normally done by update all)")):
+    """Write the change report (last two pipeline runs) to exports/ and print it."""
+    from fp import pii, report
+
+    con = pii.connect(read_only=not snapshot)
+    if snapshot:
+        report.snapshot(con, {"manual": True})
+    path = report.write(con)
+    console.print(open(path, encoding="utf-8").read())
+    console.print(f"[dim]{path}[/dim]")
 
 
 @update_app.command("dblp")
