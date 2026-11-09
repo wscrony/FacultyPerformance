@@ -152,7 +152,8 @@ with tab_search:
                 "birth_year", "pubs",
                 "first_au", "last_au", "cites", "cites_all", "cohort_pctl", "cohort_n", "age_src"]]
     st.dataframe(
-        view, hide_index=True, width="stretch", height=420,
+        view, hide_index=True, width="stretch", height=420, key="search_tab",
+        on_select="rerun", selection_mode="single-row",
         column_config={
             "rank": st.column_config.NumberColumn("순위", help="선택한 순위 기준으로 매긴 검색 결과 내 순위"),
             "age": st.column_config.NumberColumn(
@@ -173,6 +174,30 @@ with tab_search:
             "last_au": st.column_config.NumberColumn("마지막저자"),
         },
     )
+    sel = st.session_state.get("search_tab")
+    picked_rows = sel.selection.rows if sel is not None and hasattr(sel, "selection") else []
+    if picked_rows and picked_rows[0] < len(view):
+        pr = view.iloc[picked_rows[0]]
+        pp = age.person_papers(con(), pr["name"], G)
+        with st.container(border=True):
+            tot_c = int(pp.cites.fillna(0).sum())
+            st.markdown(f"**{pr['name']}** · {pr['institution'] or ''} · 논문 {len(pp)}편 · 피인용 {tot_c:,} "
+                        f"({yr[0]}–{yr[1]}, 검색 조건 기준)")
+            show = pp.assign(cites=[f"{int(x):,}" if pd.notna(x) else "" for x in pp.cites],
+                             link=pp.link.fillna(""))
+            st.dataframe(
+                show, hide_index=True, width="stretch", height=min(520, 36 * len(pp) + 40), key="search_papers",
+                column_config={
+                    "year": st.column_config.NumberColumn("연도", format="%d", width="small"),
+                    "venue": "학회", "field": "분야", "title": st.column_config.TextColumn("제목", width="large"),
+                    "position": "저자 위치",
+                    "cites": st.column_config.TextColumn("피인용", help="OpenAlex cited_by (DOI 있는 논문만)"),
+                    "link": st.column_config.LinkColumn("DOI", display_text="열기"),
+                },
+            )
+            st.caption("피인용 = OpenAlex 기준. NeurIPS·ICML·ICLR·USENIX 등 DOI가 없는 학회 논문은 피인용이 비어 있습니다.")
+    else:
+        st.caption("행을 클릭하면 그 사람의 논문 목록과 피인용 수가 여기에 나옵니다.")
     if scope != "kr":
         st.caption("명단 외 인물의 소속은 본인 최근 논문의 OpenAlex 소속(‘소속 연도’ 기준)입니다. "
                    "한국인 여부는 이름·공저 기반 추정입니다.")

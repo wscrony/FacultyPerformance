@@ -273,3 +273,26 @@ def candidates(
 
 
 PII_COLUMNS = {"acad_age", "phd_year", "age_src", "birth_year", "birth_src", "age"}
+
+
+def person_papers(con, name: str, f: metrics.Filter):
+    """Papers counted for `name` under the filter (same rule as candidates' pubs), with OpenAlex citations."""
+    w, prm = _pub_where(f, "p")
+    from fp.boards import field_sql
+
+    cites = "c.cited_by" if con.execute(
+        "SELECT count(*) FROM duckdb_tables() WHERE table_name = 'oa_cites'").fetchone()[0] else "NULL::INTEGER"
+    join = "LEFT JOIN oa_cites c ON c.doi = p.doi" if cites != "NULL::INTEGER" else ""
+    return con.execute(
+        f"""
+        SELECT p.year, upper(p.venue) AS venue, {field_sql('v')} AS field, p.title,
+               CASE WHEN a.pos = 1 THEN '1저자' WHEN a.pos = p.n_authors AND p.n_authors > 1 THEN '마지막'
+                    ELSE a.pos || '/' || p.n_authors END AS position,
+               {cites} AS cites,
+               CASE WHEN p.doi IS NOT NULL THEN 'https://doi.org/' || p.doi END AS link
+        FROM dblp_authorship a JOIN dblp_paper p USING (key) JOIN venue v ON v.venue = p.venue {join}
+        WHERE a.name = ? AND {w}
+        ORDER BY p.year DESC, cites DESC NULLS LAST, p.title
+        """,
+        [name, *prm],
+    ).df()

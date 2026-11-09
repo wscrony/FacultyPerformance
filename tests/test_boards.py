@@ -112,3 +112,19 @@ def test_institution_faculty_matches_faculty_count(con):  # noqa: F811
     fl = B.institution_faculty(con, "A", f)
     assert len(fl) == inst.set_index("institution").loc["A"].faculty
     assert "Minji Kim" not in set(fl.name)  # non-faculty never listed
+
+
+def test_person_papers_match_candidate_pubs(con):  # noqa: F811
+    from fp import metrics
+
+    con.execute("""CREATE OR REPLACE TABLE author_pub AS
+        SELECT a.name, p.venue, p.year, count(*)::INTEGER AS count, sum(1.0 / p.n_authors) AS adjustedcount,
+               (count(*) FILTER (WHERE a.pos = 1))::INTEGER AS first_count,
+               (count(*) FILTER (WHERE a.pos = p.n_authors AND p.n_authors > 1))::INTEGER AS last_count
+        FROM dblp_authorship a JOIN dblp_paper p USING (key) GROUP BY ALL""")  # same as dblp.LOAD_SQL
+    age.create_views(con)
+    f = metrics.Filter(start=2000, end=2030)
+    rows, cols = age.candidates(con, f, limit=None, scope="kr")
+    cand = dict(zip([r[cols.index("name")] for r in rows], [r[cols.index("pubs")] for r in rows]))
+    for n, pubs in cand.items():
+        assert len(age.person_papers(con, n, f)) == pubs
