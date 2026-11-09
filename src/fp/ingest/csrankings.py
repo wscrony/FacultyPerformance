@@ -108,6 +108,15 @@ def parse_config(src: str) -> list[VenueRow]:
     return rows
 
 
+# Venues CSrankings counts by default that we treat as not top-tier (user decision): they join the
+# "next tier" set, so default counts skip them and the 'include extended venues' switch brings them back.
+NOT_TOP = {"aaai", "ijcai"}
+
+
+def apply_overrides(con) -> None:
+    con.execute("UPDATE venue SET next_tier = TRUE WHERE venue IN (SELECT unnest(?))", [sorted(NOT_TOP)])
+
+
 def load(con, sha: str, src_dir: Path) -> dict[str, int]:
     venues = parse_config((src_dir / "config.ts").read_text())
     con.execute("BEGIN")
@@ -118,6 +127,7 @@ def load(con, sha: str, src_dir: Path) -> dict[str, int]:
             "INSERT INTO venue VALUES (?,?,?,?,?)",
             [(v.venue, v.area, v.area_title, v.category, v.next_tier) for v in venues],
         )
+        apply_overrides(con)
         d = str(src_dir)
         con.execute(
             f"""INSERT INTO institution SELECT institution, region, countryabbrv, homepage

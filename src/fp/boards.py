@@ -25,6 +25,7 @@ class BF:
     venues: list[str] | None = None
     next_tier: bool = False
     credit: str = "any"  # any | last
+    fields: list[str] | None = None  # department fields (FIELDS keys)
 
     def where(self, p: str = "p", v: str = "v") -> tuple[str, list]:
         conds, params = [f"{p}.year BETWEEN ? AND ?"], [self.start, self.end]
@@ -37,6 +38,9 @@ class BF:
             if self.areas:
                 conds.append(f"{v}.area IN (SELECT unnest(?))")
                 params.append(self.areas)
+            elif self.fields:
+                conds.append(f"({field_sql(v)}) IN (SELECT unnest(?))")
+                params.append(self.fields)
         return " AND ".join(conds), params
 
     def credit_sql(self, alias: str = "x") -> str:
@@ -235,7 +239,7 @@ def school_profile(con, school: str, f: BF):
         f"""
         WITH fac AS (SELECT DISTINCT name FROM cs_faculty WHERE affiliation = ?),
         pubs AS (SELECT a.name, {_FIELD_SQL} AS field, p.year FROM dblp_authorship a JOIN dblp_paper p USING (key)
-                 JOIN venue v ON v.venue = p.venue WHERE a.name IN (SELECT name FROM fac) AND NOT v.next_tier)
+                 JOIN venue v ON v.venue = p.venue WHERE a.name IN (SELECT name FROM fac) AND (? OR NOT v.next_tier))
         SELECT f.name, pa.academic_age, pa.age_source,
                count(*) FILTER (WHERE pubs.year BETWEEN ? AND ?) AS papers_window,
                count(pubs.year) AS papers_career,
@@ -243,18 +247,19 @@ def school_profile(con, school: str, f: BF):
         FROM fac f LEFT JOIN pubs ON pubs.name = f.name LEFT JOIN person_age pa ON pa.person = f.name
         GROUP BY ALL ORDER BY papers_window DESC, f.name
         """,
-        [school, f.start, f.end],
+        [school, f.next_tier, f.start, f.end],
     ).df()
 
 
 def school_trend(con, school: str, f: BF):
     ensure_pinst(con)
-    whole = BF(start=0, end=9999, areas=f.areas, venues=f.venues, next_tier=f.next_tier, credit=f.credit)
+    whole = BF(start=0, end=9999, areas=f.areas, venues=f.venues, next_tier=f.next_tier, credit=f.credit,
+               fields=f.fields)
     w, prm = whole.where("x")
     return con.execute(
-        f"""SELECT x.year, any_value(v.area_title) AS area, v.area AS area_code, count(DISTINCT x.key) AS papers
+        f"""SELECT x.year, {_FIELD_SQL} AS field, count(DISTINCT x.key) AS papers
             FROM pinst x JOIN venue v ON v.venue = x.venue
-            WHERE {w} AND x.institution = ? GROUP BY x.year, v.area ORDER BY 1""",
+            WHERE {w} AND x.institution = ? GROUP BY 1, 2 ORDER BY 1""",
         prm + [school],
     ).df()
 
@@ -284,8 +289,9 @@ FIELDS = {
     "HCI": ("Human-Computer Interaction", "Applied", ["chi"]),
     "NLP": ("Natural Language Processing", "Applied", ["nlp"]),
     "VC": ("Visual Computing", "Applied", ["vision", "graph", "visualization"]),
-    "DS": ("Data Science (DB, Web+IR)", "Applied", ["mod", "inforet"]),
-    "ML": ("Machine Learning (ML, AI)", "Applied", ["mlmining", "ai"]),
+    "DB": ("Databases (SIGMOD, VLDB · ICDE, PODS)", "Applied", ["mod"]),
+    "DM": ("Data Mining & IR (WWW, SIGIR · KDD)", "Applied", ["inforet"]),
+    "ML": ("Machine Learning (NeurIPS, ICML, ICLR · AAAI, IJCAI)", "Applied", ["mlmining", "ai"]),
     "TC": ("Theory of Computing", "Foundational", ["act", "crypt", "log"]),
     "SS": ("Secure Systems", "Foundational", ["sec"]),
     "CS": ("Computing Systems", "Foundational", ["arch", "bed", "da", "hpc", "ops", "metrics"]),
@@ -294,7 +300,17 @@ FIELDS = {
     "기타": ("Robotics, Comp. Bio, ECom, CSEd", "Other", ["robotics", "bio", "ecom", "csed"]),
 }
 AREA_FIELD = {a: k for k, (_, _, areas) in FIELDS.items() for a in areas}
-_FIELD_SQL = "CASE v.area " + " ".join(f"WHEN '{a}' THEN '{k}'" for a, k in AREA_FIELD.items()) + " ELSE '기타' END"
+# venue-level exceptions: CSrankings files KDD under 'ML'; here it is data mining
+VENUE_FIELD = {"kdd": "DM"}
+
+
+def field_sql(v: str = "v") -> str:
+    exc = " ".join(f"WHEN {v}.venue = '{x}' THEN '{k}'" for x, k in VENUE_FIELD.items())
+    by_area = " ".join(f"WHEN {v}.area = '{a}' THEN '{k}'" for a, k in AREA_FIELD.items())
+    return f"CASE {exc} {by_area} ELSE '기타' END"
+
+
+_FIELD_SQL = field_sql("v")
 
 
 def kr_field_matrix(con, f: BF):
@@ -322,8 +338,8 @@ def school_faculty_fields(con, school: str, f: BF):
         SELECT a.name, {_FIELD_SQL} AS field,
                count(*) FILTER (WHERE p.year BETWEEN ? AND ?) AS papers_window, count(*) AS papers_career
         FROM dblp_authorship a JOIN dblp_paper p USING (key) JOIN venue v ON v.venue = p.venue
-        WHERE a.name IN (SELECT name FROM fac) AND NOT v.next_tier
+        WHERE a.name IN (SELECT name FROM fac) AND (? OR NOT v.next_tier)
         GROUP BY 1, 2
         """,
-        [school, f.start, f.end],
+        [school, f.start, f.end, f.next_tier],
     ).df()

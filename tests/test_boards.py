@@ -77,3 +77,17 @@ def test_board_pages_render(con, page):  # noqa: F811
     st.cache_data.clear()
     at = AppTest.from_file(str(VIEWS / page), default_timeout=90).run()
     assert not at.exception, [e.message for e in at.exception]
+
+
+def test_not_top_override_and_field_mapping(con):  # noqa: F811
+    from fp.ingest import csrankings
+
+    con.executemany("INSERT INTO venue VALUES (?,?,?,?,?)",
+                    [("aaai", "ai", "AI", "ai", False), ("kdd", "mlmining", "ML", "ai", True),
+                     ("www", "inforet", "Web+IR", "ai", False)])
+    csrankings.apply_overrides(con)
+    assert con.execute("SELECT next_tier FROM venue WHERE venue = 'aaai'").fetchone()[0] is True
+    got = dict(con.execute(f"SELECT v.venue, {B.field_sql('v')} FROM venue v").fetchall())
+    assert got["kdd"] == "DM" and got["www"] == "DM" and got["sigmod"] == "DB" and got["aaai"] == "ML"
+    where, prm = B.BF(start=2000, end=2030, fields=["DB"]).where("p", "v")
+    assert "unnest" in where and ["DB"] in prm

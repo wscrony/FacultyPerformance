@@ -33,7 +33,6 @@ c1, c2 = st.columns([3, 2])
 with c1:
     tr = tr[tr.year >= max(2000, f.start - 15)]
     if not tr.empty:
-        tr["field"] = tr.area_code.map(B.AREA_FIELD).fillna("기타")
         agg = tr.groupby(["year", "field"]).papers.sum().reset_index()
         fig = go.Figure()
         FK = [k for k in B.FIELDS if k != "기타"]
@@ -43,10 +42,10 @@ with c1:
                 continue
             color = ui.gray() if a == "기타" else ui.series()[i % 8]
             fig.add_bar(x=s.year, y=s.papers, name=a,
-                        marker=dict(color=color, pattern=dict(shape="/" if 8 <= i < 10 else "", fillmode="replace", bgcolor=color, fgcolor="rgba(255,255,255,0.8)", solidity=0.3),
+                        marker=dict(color=color, pattern=dict(shape="/" if i >= 8 and a != "기타" else "", fillmode="replace", bgcolor=color, fgcolor="rgba(255,255,255,0.8)", solidity=0.3),
                                     line=dict(width=1, color="rgba(255,255,255,0.6)")),
                         hovertemplate=f"{a} · {B.FIELDS[a][0]}<br>%{{x}}: %{{y}}편<extra></extra>")
-        fig.update_layout(barmode="stack", bargap=0.2, title=f"{school} · 연도별 논문 수 (10개 분야 + 기타)")
+        fig.update_layout(barmode="stack", bargap=0.2, title=f"{school} · 연도별 논문 수 (분야별 + 기타)")
         fig.add_vrect(x0=f.start - 0.5, x1=f.end + 0.5, fillcolor="rgba(128,128,128,0.08)", line_width=0,
                       annotation_text="선택 기간", annotation_position="top left")
         ui.plot(fig, height=420, key="s_trend")
@@ -108,13 +107,14 @@ if not fm.empty:
     order = list(fm.groupby("institution").papers.sum().sort_values(ascending=False).index[:15])
     # leaderboard: top 5 per field
     lead = fm[fm.field.isin(FK)].sort_values(["field", "kr_rank"])
-    cols = st.columns(5)
-    for i, k in enumerate(FK):
-        d = lead[lead.field == k].head(5)
-        with cols[i % 5].container(border=True):
-            st.markdown(f"**{k}** · {B.FIELDS[k][0]}")
-            for r in d.itertuples():
-                st.markdown(f"{int(r.kr_rank)}. {ui.short(r.institution)} — {int(r.papers)}편")
+    for grp in ("Applied", "Foundational"):
+        st.markdown(f"**{grp} Computing**")
+        cols = st.columns(6)
+        for i, k in enumerate([k for k in FK if B.FIELDS[k][1] == grp]):
+            with cols[i].container(border=True):
+                st.markdown(f"**{k}** · {B.FIELDS[k][0]}")
+                for r in lead[lead.field == k].head(5).itertuples():
+                    st.markdown(f"{int(r.kr_rank)}. {ui.short(r.institution)} — {int(r.papers)}편")
     # rank heatmap: schools × fields (cell = KR rank, color = papers)
     sub = fm[fm.institution.isin(order) & fm.field.isin(FK)]
     piv = sub.pivot_table(index="institution", columns="field", values="papers").reindex(index=order, columns=FK)
@@ -144,7 +144,7 @@ if not fm.empty:
                     customdata=d.papers, text=[f"{k}" if v >= 7 else "" for v in d.pct], textposition="inside",
                     insidetextanchor="middle", textfont=dict(color=ui.ink(color)),
                     hovertemplate=f"%{{y}}<br>{k}: %{{x:.1f}}% (%{{customdata:.0f}}편)<extra></extra>")
-    fig.update_layout(barmode="stack", title="분야 비중 (%, 슬래시 무늬 = 9·10번째 분야, 회색 = 기타)")
+    fig.update_layout(barmode="stack", title="분야 비중 (%, 슬래시 무늬 = 9번째 이후 분야, 회색 = 기타)")
     fig.update_yaxes(autorange="reversed")
     fig.update_xaxes(ticksuffix="%", range=[0, 100])
     ui.plot(fig, height=600, key="s_mix")

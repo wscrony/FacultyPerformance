@@ -59,7 +59,7 @@ with st.sidebar:
         "세부 분야", pool.area.tolist(), format_func=lambda a: f"{a} ({areas_df.set_index('area').title[a]})"
     )
     sel_areas = picked or (pool.area.tolist() if cats else None)
-    next_tier = st.toggle("next-tier 학회 포함", value=False, help="CSrankings 기본값은 제외")
+    next_tier = st.toggle("확장 학회 포함", value=False, help="기본은 top 학회만. 켜면 CSrankings 확장 학회 + AAAI·IJCAI 포함")
     region = st.radio("국가", ["kr", "world"], horizontal=True)
     st.caption("학교 점수 = 분야별 (논문 수+1)의 기하평균. 같은 학교 교수 공저 논문은 각자 1편씩 셉니다.")
 

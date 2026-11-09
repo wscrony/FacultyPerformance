@@ -104,7 +104,7 @@ def _areas() -> list[tuple[str, str, str]]:
 
 @st.cache_data
 def _venues() -> list[str]:
-    return [r[0] for r in con().execute("SELECT venue FROM venue WHERE NOT next_tier ORDER BY 1").fetchall()]
+    return [r[0] for r in con().execute("SELECT venue FROM venue ORDER BY 1").fetchall()]
 
 
 def board_filter(key: str, default_years: int = 5, credit: bool = True):
@@ -118,12 +118,16 @@ def board_filter(key: str, default_years: int = 5, credit: bool = True):
 
     cats = c2.multiselect("분야", list(FIELDS), format_func=lambda k: f"{k} · {FIELDS[k][0]}", key=f"{key}_cat")
     pool = [a for a, _, _ in areas if not cats or AREA_FIELD.get(a, "기타") in cats]
-    picked = c3.multiselect("세부 분야", pool, format_func=lambda a: f"{title[a]}", key=f"{key}_area")
+    picked = c3.multiselect("세부 분야 (CSrankings)", pool, format_func=lambda a: f"{title[a]}", key=f"{key}_area")
     venues = c4.multiselect("학회 (선택 시 분야 무시)", _venues(), key=f"{key}_venue")
+    o1, o2 = st.columns([3, 2])
+    nt = o2.toggle("확장 학회 포함 (KDD · ICDE · PODS · AAAI · IJCAI 등)", value=False, key=f"{key}_nt",
+                   help="기본은 top 학회만 셉니다. 켜면 CSrankings 확장 학회와 AAAI·IJCAI까지 셉니다. DM의 KDD도 이걸 켜야 들어갑니다.")
     cr = "any"
     if credit:
-        cr = st.radio("기관 귀속 기준", list(CREDIT), format_func=CREDIT.get, horizontal=True, key=f"{key}_credit")
-    return BF(start=yr[0], end=yr[1], areas=picked or (pool if cats else None), venues=venues or None, credit=cr)
+        cr = o1.radio("기관 귀속 기준", list(CREDIT), format_func=CREDIT.get, horizontal=True, key=f"{key}_credit")
+    return BF(start=yr[0], end=yr[1], areas=picked or None, venues=venues or None, credit=cr, next_tier=nt,
+              fields=cats or None)
 
 
 def kpis(items: list[tuple[str, str, str | None]]):
