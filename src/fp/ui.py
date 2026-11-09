@@ -409,7 +409,45 @@ def top_venue_editor() -> None:
         st.caption("체크한 학회만 'top 학회'로 셉니다 (모든 페이지의 논문 수·순위·학문적 나이 추정에 적용). "
                    f"평가 열은 [CS 분야 우수 학술대회 목록]({topvenues.CATALOG_URL}) (정보과학회 2024 · BK21 2018 · KAIST · "
                    "SNU · POSTECH). 저장은 이 컴퓨터의 data/top_venues.json.")
-        q = st.text_input("학회 찾기", key="tv_q", placeholder="예: SoCG, CAV, CIKM")
+        # ── presets: pick a whole list at once ──
+        presets = {
+            "정보과학회 최우수": df.kiise.eq("최우수"),
+            "정보과학회 우수 이상": df.kiise.isin(["최우수", "우수"]),
+            "BK21 IF 4": df.bk21.eq("4"),
+            "BK21 IF 3 이상": df.bk21.isin(["3", "4"]),
+            "KAIST CS S급": df.kaist.eq("O"),
+            "SNU CSE Top": df.snu.eq("O"),
+            "POSTECH 최우수": df.postech.eq("최우수"),
+            "평균 0.75 이상": df.avg.fillna(0).ge(0.75),
+            "CSrankings 기준 top": df.csr.eq("top"),
+        }
+        p1, p2, p3 = st.columns([3, 1.2, 1.2])
+        chosen = p1.multiselect("목록으로 한꺼번에 고르기 (여러 개 고르면 합집합)", list(presets), key="tv_presets",
+                                help="예: '정보과학회 최우수' + 'BK21 IF 4'")
+        mask = pd.Series(False, index=df.index)
+        for k in chosen:
+            mask |= presets[k]
+        sel = df[mask & df.countable]
+        if chosen:
+            p1.caption(f"해당 {int(mask.sum())}개 중 논문 데이터가 있는 {len(sel)}개: "
+                       + ", ".join(sel.name.head(40)) + (" …" if len(sel) > 40 else ""))
+        cs_top_all = dict(zip(ours.venue, ~ours.cs_nt.astype(bool)))
+
+        def _save_top(top_set: set[str]) -> None:
+            topvenues.save(sorted(v for v in top_set if not cs_top_all.get(v)),
+                           sorted(v for v, t in cs_top_all.items() if t and v not in top_set))
+            st.cache_data.clear()
+
+        if p2.button("이 목록만 top으로", disabled=not chosen, key="tv_only",
+                     help="선택한 목록의 학회만 top, 나머지는 모두 top에서 뺌"):
+            _save_top(set(sel.venue))
+            st.rerun()
+        if p3.button("현재 top에 추가", disabled=not chosen, key="tv_add",
+                     help="지금 top인 학회는 그대로 두고 선택한 목록을 더함"):
+            _save_top(set(df[df.top & df.countable].venue) | set(sel.venue))
+            st.rerun()
+
+        q = st.text_input("학회 찾기 (개별로 고치기)", key="tv_q", placeholder="예: SoCG, CAV, CIKM")
         view = df[df.name.str.contains(q, case=False) | df.venue.str.contains(q, case=False)] if q else df
         ed = st.data_editor(
             view[["top", "name", "field", "kiise", "bk21", "kaist", "snu", "postech", "avg", "csr", "data",
