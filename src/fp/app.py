@@ -149,26 +149,35 @@ with tab_search:
     age_rng = c2.slider("학문적 나이 (PhD 후 연수)", 0, 45, (0, 45))
     min_adj = c3.number_input("최소 adj", 0.0, 100.0, 0.0, 0.5)
     window = c4.number_input("코호트 ±", 1, 5, 2)
-    known_only = st.toggle("확인된 나이만 (ORCID·홈페이지·수동)", value=False)
+    t1, t2 = st.columns([2, 3])
+    sort = t1.selectbox("순위 기준", list(age.SORTS), format_func=age.SORTS.get, key="sort")
+    known_only = t2.toggle("확인된 나이만 (ORCID·홈페이지·수동)", value=False)
     G = metrics.Filter(**{**F.__dict__, "schools": sch or None})
     rows, cols = age.candidates(
         con(), G,
         age_min=age_rng[0] if age_rng[0] > 0 else None,
         age_max=age_rng[1] if age_rng[1] < 45 else None,
-        min_adj=min_adj, cohort_window=window, limit=None if scope == "kr" else 2000, scope=scope,
+        min_adj=min_adj, cohort_window=window, limit=None if scope == "kr" else 2000, scope=scope, sort=sort,
     )
     cdf = pd.DataFrame(rows, columns=cols)
     if known_only:
-        cdf = cdf[~cdf.age_src.fillna("est").str.startswith("est")]
+        cdf = cdf[~cdf.age_src.fillna("est").str.startswith("est")].copy()
+        cdf["rank"] = range(1, len(cdf) + 1)
     cdf["추정"] = cdf.age_src.fillna("est").str.startswith("est")
+    cdf["나이추정"] = cdf.birth_src.fillna("est").str.startswith("est")
     st.caption(
         f"{len(cdf)}명 · pctl = 국내 교수 중 같은 분야, 학문적 나이 ±{window}년 집단에서의 백분위 (기간 {yr[0]}–{yr[1]})"
     )
-    view = cdf[["name", "institution", "role", "affil_year", "acad_age", "추정", "phd_year", "birth_year", "pubs", "adj",
-                "first_au", "last_au", "cites", "cohort_pctl", "cohort_n", "age_src"]]
+    view = cdf[["rank", "name", "institution", "role", "affil_year", "age", "나이추정", "acad_age", "추정", "phd_year",
+                "birth_year", "pubs", "adj",
+                "first_au", "last_au", "cites", "cites_all", "cohort_pctl", "cohort_n", "age_src"]]
     st.dataframe(
         view, hide_index=True, width="stretch", height=420,
         column_config={
+            "rank": st.column_config.NumberColumn("순위", help="선택한 순위 기준으로 매긴 검색 결과 내 순위"),
+            "age": st.column_config.NumberColumn(
+                "나이", help="올해 − 출생연도. 출생연도가 없으면 PhD−30, 학사−23, 첫 top 논문−28로 추정 (±3년 정도 오차)"),
+            "나이추정": st.column_config.CheckboxColumn("나이 추정값"),
             "acad_age": st.column_config.NumberColumn("학문적 나이"),
             "cohort_pctl": st.column_config.ProgressColumn("pctl", min_value=0, max_value=100, format="%d"),
             "phd_year": st.column_config.NumberColumn("PhD", format="%d"),
@@ -177,8 +186,9 @@ with tab_search:
             "affil_year": st.column_config.NumberColumn("소속 연도", format="%d",
                                                         help="비교수: 소속을 확인한 가장 최근 논문의 연도 (OpenAlex)"),
             "first_au": st.column_config.NumberColumn("1저자"),
+            "cites_all": st.column_config.NumberColumn("피인용(경력 전체)", help="모든 분야·연도의 대상 학회 DOI 논문 합"),
             "cites": st.column_config.NumberColumn(
-                "피인용", help="대상 학회 논문 중 DOI가 있는 논문의 OpenAlex 피인용 합 (경력 전체). "
+                "피인용", help="선택한 분야·기간의 대상 학회 논문 중 DOI가 있는 논문의 OpenAlex 피인용 합. "
                              "NeurIPS·ICML·ICLR·USENIX 등 DOI 없는 학회는 빠져 있어 ML·시스템 분야는 과소집계"),
             "last_au": st.column_config.NumberColumn("마지막저자"),
         },

@@ -1,7 +1,7 @@
 """Academic age + birth-year estimate + cohort percentile. Requires a pii.connect() connection.
 
 Resolution order (docs/SPEC.md §8.3):
-  phd_year : manual > orcid > homepage   (else estimated as first top-venue year + PHD_AFTER_FIRST_TOP)
+  phd_year : manual > orcid > homepage   (else estimated as first top-venue year + PHD_AFTER_FIRST_TOP, i.e. −2)
   birth    : manual/homepage birth year  > phd-30 > bs-23 > first top-venue year - 27
 All views are TEMP so nothing derived from PII is persisted into public.duckdb.
 """
@@ -12,8 +12,10 @@ from datetime import date
 
 from fp import metrics
 
-PHD_AFTER_FIRST_TOP = 3
-BIRTH_BEFORE = {"phd": 30, "bs": 23, "first_top": 27}
+# Calibrated on people with known degrees (2026-11-09): first top-venue paper is a median 2 years BEFORE the PhD
+# (IQR −4…+2, n=610); PhD − BS median 7 years (IQR 6–9, n=388). With BS at ~23 → PhD at ~30.
+PHD_AFTER_FIRST_TOP = -2
+BIRTH_BEFORE = {"phd": 30, "bs": 23, "first_top": 28}
 SOURCE_RANK = "CASE source WHEN 'manual' THEN 0 WHEN 'orcid' THEN 1 WHEN 'homepage' THEN 2 ELSE 9 END"
 
 
@@ -138,6 +140,15 @@ def create_views(con, this_year: int | None = None) -> None:
     )
 
 
+SORTS = {
+    "adj": "adjusted count (논문 1편 = 1/저자수, CSrankings 기준)",
+    "pubs": "논문 수",
+    "cites": "피인용 (선택 분야·기간, DOI 있는 대상 학회 논문)",
+    "pctl": "같은 나이대 국내 교수 대비 백분위",
+}
+
+SORT_EXPR = {"adj": "s.adj", "pubs": "s.pubs", "cites": "wc.cites", "pctl": "cohort_pctl"}
+
 SCOPES = {
     "kr": "KR faculty",
     "korean": "Korean researchers anywhere (KR faculty + faculty abroad + non-faculty)",
@@ -169,6 +180,7 @@ def candidates(
     cohort_window: int = 2,
     limit: int | None = 100,
     scope: str = "kr",
+    sort: str = "adj",
 ):
     """People with output in the filter window, academic age, and percentile vs KR faculty of similar age.
 
@@ -176,6 +188,8 @@ def candidates(
     Percentile population: KR faculty with >=1 paper (any year) in the selected areas, academic age within
     ±cohort_window, measured on adjusted count in the same window.
     """
+    if sort not in SORTS:
+        raise ValueError(f"sort must be one of {list(SORTS)}")
     if scope not in SCOPES:
         raise ValueError(f"scope must be one of {list(SCOPES)}")
     create_views(con)
@@ -190,9 +204,18 @@ def candidates(
         "korean": "r.is_korean",
         "world": "r.listed_faculty",
     }[scope]
+    # citations of the papers inside the filter (areas + years), not career totals
+    if all(_has_table(con, t) for t in ("oa_cites", "dblp_paper", "dblp_authorship")):
+        wcite_sql = f"""SELECT a.name AS person, sum(c.cited_by)::BIGINT AS cites
+            FROM dblp_authorship a JOIN dblp_paper p USING (key) JOIN venue v ON v.venue = p.venue
+            JOIN oa_cites c ON c.doi = p.doi WHERE {win} GROUP BY 1"""
+        cparams = list(wparams)
+    else:
+        wcite_sql, cparams = "SELECT NULL::VARCHAR AS person, NULL::BIGINT AS cites WHERE false", []
     school_sql, sparams = ("AND r.affiliation IN (SELECT unnest(?))", [f.schools]) if f.schools else ("", [])
     q = f"""
-    WITH sel AS (
+    WITH wcite AS ({wcite_sql}),
+    sel AS (
         SELECT p.name, sum(p.count) AS pubs, sum(p.adjustedcount) AS adj,
                sum(p.first_count) AS first_au, sum(p.last_count) AS last_au
         FROM {src} p JOIN venue v ON v.venue = p.venue WHERE {win} GROUP BY 1
@@ -207,31 +230,38 @@ def candidates(
         JOIN person_age a ON a.person = k.person
         WHERE a.academic_age IS NOT NULL
     )
+    SELECT * EXCLUDE (sort_key), row_number() OVER (ORDER BY sort_key DESC NULLS LAST, adj DESC, name) AS rank
+    FROM (
     SELECT s.name, coalesce(r.affiliation, '-') AS institution, r.role, r.affil_year,
            a.academic_age, a.phd_year, a.age_source, a.birth_year, a.birth_source,
-           s.pubs, round(s.adj, 2) AS adj, s.first_au, s.last_au, pc.cites, pc.cited_papers, pc.papers AS top_papers,
+           {date.today().year} - a.birth_year AS age,
+           s.pubs, round(s.adj, 2) AS adj, s.first_au, s.last_au, wc.cites, pc.cites AS cites_all, pc.cited_papers, pc.papers AS top_papers,
            (SELECT round(100.0 * avg(CASE WHEN q.adj < s.adj THEN 1 WHEN q.adj = s.adj THEN 0.5 ELSE 0 END), 0)
               FROM pop q WHERE abs(q.academic_age - a.academic_age) <= {int(cohort_window)}) AS cohort_pctl,
-           (SELECT count(*) FROM pop q WHERE abs(q.academic_age - a.academic_age) <= {int(cohort_window)}) AS cohort_n
+           (SELECT count(*) FROM pop q WHERE abs(q.academic_age - a.academic_age) <= {int(cohort_window)}) AS cohort_n,
+           {SORT_EXPR[sort]} AS sort_key
     FROM sel s
     JOIN person_role r ON r.person = s.name
     LEFT JOIN person_age a ON a.person = s.name
     LEFT JOIN person_cites pc ON pc.person = s.name
+    LEFT JOIN wcite wc ON wc.person = s.name
     WHERE {scope_sql} {school_sql}
       AND s.adj >= ?
       AND (? IS NULL OR a.academic_age >= ?)
       AND (? IS NULL OR a.academic_age <= ?)
-    ORDER BY s.adj DESC, s.name
+    )
+    ORDER BY rank
     {f"LIMIT {int(limit)}" if limit else ""}
     """
     rows = con.execute(
-        q, wparams + eparams + wparams + sparams + [min_adj, age_min, age_min, age_max, age_max]
+        q, cparams + wparams + eparams + wparams + sparams + [min_adj, age_min, age_min, age_max, age_max]
     ).fetchall()
     cols = [
         "name", "institution", "role", "affil_year", "acad_age", "phd_year", "age_src", "birth_year", "birth_src",
-        "pubs", "adj", "first_au", "last_au", "cites", "cited_papers", "top_papers", "cohort_pctl", "cohort_n",
+        "age", "pubs", "adj", "first_au", "last_au", "cites", "cites_all", "cited_papers", "top_papers", "cohort_pctl", "cohort_n",
+        "rank",
     ]
     return rows, cols
 
 
-PII_COLUMNS = {"acad_age", "phd_year", "age_src", "birth_year", "birth_src"}
+PII_COLUMNS = {"acad_age", "phd_year", "age_src", "birth_year", "birth_src", "age"}

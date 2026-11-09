@@ -365,6 +365,7 @@ def candidates(
     age_max: Optional[int] = typer.Option(None, help="max academic age"),
     min_adj: float = typer.Option(0.0, help="min adjusted count in the year range"),
     window: int = typer.Option(2, help="cohort = academic age ± window"),
+    sort: str = typer.Option("adj", help="rank by: adj (CSrankings) | pubs | cites | pctl"),
     limit: int = typer.Option(50), csv_out: Optional[str] = CsvOut,
     include_pii: bool = typer.Option(False, "--include-pii", help="keep age/degree columns in CSV"),
 ):
@@ -375,28 +376,29 @@ def candidates(
     rows, cols = age.candidates(
         con, _filter(start, end, area, next_tier, None, school),
         age_min=age_min, age_max=age_max, min_adj=min_adj, cohort_window=window, limit=limit, scope=scope,
+        sort=sort,
     )
     if csv_out and not include_pii:
         keep = [i for i, c in enumerate(cols) if c not in age.PII_COLUMNS]
         rows, cols = [[r[i] for i in keep] for r in rows], [cols[i] for i in keep]
     elif not csv_out:
         rows, cols = _compact_age(rows, cols)
-        console.print("[dim]* = estimated age; pctl vs KR faculty with acad age ± window; 1st/last = author position[/dim]")
-    _show(rows, cols, f"Candidates [{scope}] {school or ''} {start}-{end} {area or 'all'} age {age_min}-{age_max}", csv_out)
+        console.print("[dim]# = rank; * = estimated; age = this year − birth year; pctl vs KR faculty with acad age ± window; 1st/last = author position[/dim]")
+    _show(rows, cols, f"Candidates [{scope}, rank by {sort}] {school or ''} {start}-{end} {area or 'all'} age {age_min}-{age_max}", csv_out)
 
 
 def _compact_age(rows, cols):
     """Terminal view: fold *_src columns into a '*' marker on estimated values."""
     ix = {c: i for i, c in enumerate(cols)}
-    out_cols = ["name", "institution", "role", "acad_age", "birth", "pubs", "adj", "1st/last", "cites", "pctl", "n"]
+    out_cols = ["name", "institution", "role", "age", "acad_age", "pubs", "adj", "1st/last", "cites", "pctl", "n"]
     out = []
     for r in rows:
         est_age = r[ix["age_src"]] is None or r[ix["age_src"]].startswith("est")
         est_birth = r[ix["birth_src"]] is None or r[ix["birth_src"]].startswith("est")
         mark = lambda v, est: "-" if v is None else f"{v}{'*' if est else ''}"
         out.append([
-            r[ix["name"]], r[ix["institution"]], r[ix["role"]], mark(r[ix["acad_age"]], est_age),
-            mark(r[ix["birth_year"]], est_birth), r[ix["pubs"]], r[ix["adj"]],
+            r[ix["name"]], r[ix["institution"]], r[ix["role"]], mark(r[ix["age"]], est_birth),
+            mark(r[ix["acad_age"]], est_age), r[ix["pubs"]], r[ix["adj"]],
             f"{r[ix['first_au']]}/{r[ix['last_au']]}",
             "-" if r[ix["cites"]] is None else r[ix["cites"]],
             "-" if r[ix["cohort_pctl"]] is None else int(r[ix["cohort_pctl"]]), r[ix["cohort_n"]],

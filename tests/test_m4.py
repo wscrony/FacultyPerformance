@@ -1,4 +1,5 @@
 import pytest
+from datetime import date
 
 from fp import age, korean, metrics, pool
 from fp.ingest import dblp
@@ -219,7 +220,10 @@ def test_citations_update_and_budget_stop(con):  # noqa: F811
     assert st["dois"] == 50
     rows, cols = age.candidates(con, metrics.Filter(start=2016, end=2026), scope="korean")
     r = {row[0]: dict(zip(cols, row)) for row in rows}["Minji Kim"]
-    assert r["cites"] == 90 * 2 + 50 * 1 and r["cited_papers"] == 140 and r["top_papers"] == 151
+    assert r["cites_all"] == 90 * 2 + 50 * 1 and r["cited_papers"] == 140 and r["top_papers"] == 151
+    assert r["cites"] == r["cites_all"]  # all papers fall inside the 2016–2026 window
+    rows, cols = age.candidates(con, metrics.Filter(start=2023, end=2026), scope="korean")
+    assert {row[0]: dict(zip(cols, row)) for row in rows}.get("Minji Kim", {}).get("cites") is None
 
 
 def test_institution_mapping(con):  # noqa: F811
@@ -258,3 +262,18 @@ def test_snapshot_diff_report(con, tmp_path):  # noqa: F811
     assert [x[0] for x in d["age_confirmed"]] == ["Old"]
     md = report.to_markdown(d)
     assert "소속 변경 (1)" in md and "| Mid |" in md
+
+
+def test_rank_age_and_sort(con):  # noqa: F811
+    _add_author_pub(con)
+    pool.classify(con, since=2016, min_pubs=1, use_llm=False)
+    f = metrics.Filter(start=2016, end=2026)
+    rows, cols = age.candidates(con, f, scope="korean")
+    r = [dict(zip(cols, x)) for x in rows]
+    assert [x["rank"] for x in r] == list(range(1, len(r) + 1))
+    assert all(x["age"] == date.today().year - x["birth_year"] for x in r if x["birth_year"])
+    by_pubs, _ = age.candidates(con, f, scope="korean", sort="pubs")
+    pubs = [dict(zip(cols, x))["pubs"] for x in by_pubs]
+    assert pubs == sorted(pubs, reverse=True)
+    with pytest.raises(ValueError):
+        age.candidates(con, f, sort="nope")
