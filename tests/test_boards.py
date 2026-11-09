@@ -36,11 +36,9 @@ def test_board_queries_run_and_are_consistent(con):  # noqa: F811
     assert (inst.share <= 100).all() and inst["rank"].is_monotonic_increasing
     gs = B.group_share(con, f)
     assert (gs.share <= 100 + 1e-9).all()
-    for fn in (B.group_share_by_year, B.country_rank, B.kr_area_profile, B.kr_collab_matrix):
+    for fn in (B.group_share_by_year, B.country_rank, B.kr_collab_matrix):
         fn(con, f)
-    B.kr_venue_year(con, f, 10)
     B.kr_school_world_rank_by_year(con, f, B.kr_schools(con))
-    B.area_strategy(con, f, 3)
     for fn in (B.korean_landscape, B.mobility, B.talent_matrix):
         fn(con)
     B.kr_faculty_age_output(con, f)

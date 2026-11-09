@@ -142,42 +142,8 @@ def kr_school_world_rank_by_year(con, f: BF, schools: list[str]):
     ).df()
 
 
-def kr_area_profile(con, f: BF):
-    """Per area: Korea's share of the area's papers, vs Korea's share overall (specialization)."""
-    ensure_pinst(con)
-    w, prm = f.where("x")
-    w2, prm2 = f.where()
-    return con.execute(
-        f"""
-        WITH tot AS (SELECT v.area, any_value(v.area_title) AS title, count(*) AS n
-                     FROM dblp_paper p JOIN venue v USING (venue) WHERE {w2} GROUP BY 1),
-        kr AS (SELECT v.area, count(DISTINCT x.key) AS kr FROM pinst x JOIN venue v ON v.venue = x.venue
-               WHERE {w} AND {f.credit_sql()} AND x.country = 'kr' GROUP BY 1)
-        SELECT t.area, t.title, t.n AS papers, coalesce(kr.kr, 0) AS kr_papers,
-               100.0 * coalesce(kr.kr, 0) / t.n AS kr_share
-        FROM tot t LEFT JOIN kr USING (area) ORDER BY kr_share DESC
-        """,
-        prm2 + prm,
-    ).df()
 
 
-def kr_venue_year(con, f: BF, top: int = 25):
-    """Korea share (%) per venue per year for the venues where Korea publishes most."""
-    ensure_pinst(con)
-    w, prm = f.where("x")
-    w2, prm2 = f.where()
-    return con.execute(
-        f"""
-        WITH tot AS (SELECT p.venue, p.year, count(*) AS n FROM dblp_paper p JOIN venue v USING (venue)
-                     WHERE {w2} GROUP BY 1, 2),
-        kr AS (SELECT x.venue, x.year, count(DISTINCT x.key) AS kr FROM pinst x JOIN venue v ON v.venue = x.venue
-               WHERE {w} AND {f.credit_sql()} AND x.country = 'kr' GROUP BY 1, 2),
-        topv AS (SELECT venue FROM kr GROUP BY 1 ORDER BY sum(kr) DESC LIMIT ?)
-        SELECT t.venue, t.year, t.n, coalesce(kr.kr, 0) AS kr, 100.0 * coalesce(kr.kr, 0) / t.n AS share
-        FROM tot t LEFT JOIN kr USING (venue, year) WHERE t.venue IN (SELECT venue FROM topv)
-        """,
-        prm2 + prm + [top],
-    ).df()
 
 
 def kr_collab_matrix(con, f: BF, top: int = 15):
@@ -293,27 +259,6 @@ def school_trend(con, school: str, f: BF):
     ).df()
 
 
-def area_strategy(con, f: BF, window: int = 3):
-    """Per area: world growth (last `window` years vs the `window` before), Korea share in the recent window."""
-    ensure_pinst(con)
-    end = f.end
-    recent, prev = (end - window + 1, end), (end - 2 * window + 1, end - window)
-    nt = "" if f.next_tier else "AND NOT v.next_tier"
-    return con.execute(
-        f"""
-        WITH w AS (SELECT v.area, any_value(v.area_title) AS title, any_value(v.category) AS category,
-                          count(*) FILTER (WHERE p.year BETWEEN ? AND ?) AS recent,
-                          count(*) FILTER (WHERE p.year BETWEEN ? AND ?) AS prev
-                   FROM dblp_paper p JOIN venue v USING (venue) WHERE TRUE {nt} GROUP BY 1),
-        kr AS (SELECT v.area, count(DISTINCT x.key) AS kr FROM pinst x JOIN venue v ON v.venue = x.venue
-               WHERE x.country = 'kr' AND x.year BETWEEN ? AND ? {nt} GROUP BY 1)
-        SELECT w.area, w.title, w.category, w.recent, w.prev,
-               100.0 * (w.recent - w.prev) / nullif(w.prev, 0) AS growth,
-               coalesce(kr.kr, 0) AS kr, 100.0 * coalesce(kr.kr, 0) / nullif(w.recent, 0) AS kr_share
-        FROM w LEFT JOIN kr USING (area) WHERE w.recent > 0
-        """,
-        [*recent, *prev, *recent],
-    ).df()
 
 
 def talent_matrix(con, years: int = 5):

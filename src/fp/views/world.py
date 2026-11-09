@@ -1,4 +1,4 @@
-"""Board: Korea in the world — institution treemap, region trends, KR school rank, area specialization, venues."""
+"""Board: Korea in the world — institution treemap, region trends, KR school rank."""
 
 import pandas as pd
 import plotly.graph_objects as go
@@ -105,67 +105,3 @@ for s in schools:
 fig.update_yaxes(autorange="reversed", title="세계 순위", type="log", tickvals=[1, 2, 5, 10, 20, 50, 100, 200, 500])
 fig.update_layout(title="연도별 세계 순위 (논문 수 기준, 로그 축 · 위쪽이 상위)")
 ui.plot(fig, height=460, key="bump")
-
-# ── 4. area specialization ──
-st.subheader("분야별 한국 점유율")
-ap = _q("kr_area_profile", f)
-overall = grp.share.get("Korea", 0)
-ap = ap.sort_values("kr_share")
-fig = go.Figure(go.Bar(
-    x=ap.kr_share, y=ap.title, orientation="h", marker=dict(color=ui.series()[0], cornerradius=4),
-    customdata=ap[["kr_papers", "papers"]].values,
-    hovertemplate="%{y}<br>한국 %{x:.2f}% (%{customdata[0]:,} / %{customdata[1]:,}편)<extra></extra>",
-))
-fig.add_vline(x=overall, line=dict(color=ui.gray(), width=1.5, dash="dot"),
-              annotation_text=f"전체 평균 {overall:.2f}%", annotation_position="top")
-fig.update_layout(title="분야별 한국 기관 참여 논문 비율 — 점선보다 오른쪽이면 한국이 상대적으로 강한 분야")
-fig.update_xaxes(ticksuffix="%")
-ui.plot(fig, height=max(420, 22 * len(ap) + 100), key="spec")
-
-# ── 5. venue × year ──
-st.subheader("학회별 · 연도별 한국 점유율")
-vy = _q("kr_venue_year", f, 25)
-if not vy.empty:
-    order = vy.groupby("venue").kr.sum().sort_values(ascending=False).index
-    piv = vy.pivot_table(index="venue", columns="year", values="share").reindex(order)
-    cnt = vy.pivot_table(index="venue", columns="year", values="kr").reindex(order)
-    fig = go.Figure(go.Heatmap(
-        z=piv.values, x=[str(x) for x in piv.columns], y=piv.index, colorscale=ui.seq_scale(), xgap=2, ygap=2,
-        customdata=cnt.values, texttemplate="%{text}",
-        text=[["" if pd.isna(v) else f"{v:.1f}" for v in row] for row in piv.values],
-        hovertemplate="%{y} %{x}<br>한국 %{z:.1f}% (%{customdata:.0f}편)<extra></extra>",
-        colorbar=dict(title="%"),
-    ))
-    fig.update_yaxes(autorange="reversed")
-    fig.update_layout(title="한국 논문이 많은 상위 25개 학회 (셀 = 그 해 학회 논문 중 한국 기관 참여 비율 %, 빈칸 = 그 해 미개최)")
-    ui.plot(fig, height=max(420, 24 * len(piv) + 120), legend=False, key="venue")
-
-# ── 6. area strategy map ──
-st.subheader("분야 전략 맵")
-win = st.radio("성장률 비교 구간", [2, 3, 5], index=1, horizontal=True, key="w_win",
-               format_func=lambda w: f"최근 {w}년 vs 직전 {w}년")
-sm = B.area_strategy(c, f, win)
-if not sm.empty:
-    cats = ["ai", "systems", "theory", "interdisciplinary"]
-    names = {"ai": "AI", "systems": "Systems", "theory": "Theory", "interdisciplinary": "Interdisciplinary"}
-    fig = go.Figure()
-    for i, k in enumerate(cats):
-        d = sm[sm.category == k]
-        fig.add_scatter(
-            x=d.growth, y=d.kr_share, mode="markers+text", name=names[k], text=d.title, textposition="top center",
-            textfont=dict(size=11),
-            marker=dict(size=(d.recent ** 0.5) / max(sm.recent.max() ** 0.5, 1) * 60 + 8, color=ui.series()[i],
-                        opacity=0.8, line=dict(width=2, color="rgba(255,255,255,0.9)")),
-            customdata=d[["recent", "kr"]].values,
-            hovertemplate="<b>%{text}</b><br>세계 성장 %{x:+.0f}%<br>한국 점유율 %{y:.2f}%"
-                          "<br>최근 논문 %{customdata[0]:,}편 (한국 %{customdata[1]:,})<extra></extra>",
-        )
-    avg = 100 * sm.kr.sum() / sm.recent.sum()
-    fig.add_hline(y=avg, line=dict(color=ui.gray(), dash="dot"), annotation_text=f"한국 평균 {avg:.1f}%")
-    fig.add_vline(x=float(sm.growth.median()), line=dict(color=ui.gray(), dash="dot"),
-                  annotation_text="성장률 중앙값", annotation_position="bottom right")
-    fig.update_layout(title=f"x = 세계 논문 성장률 · y = 한국 점유율 (최근 {win}년) · 원 크기 = 분야 규모 — "
-                            "오른쪽 아래 = 크는데 한국이 약한 분야")
-    fig.update_xaxes(title="세계 논문 성장률", ticksuffix="%", zeroline=True, zerolinecolor="rgba(128,128,128,0.4)")
-    fig.update_yaxes(title="한국 점유율", ticksuffix="%")
-    ui.plot(fig, height=620, key="strategy")
