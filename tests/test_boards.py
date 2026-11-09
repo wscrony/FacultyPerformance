@@ -39,7 +39,8 @@ def test_board_queries_run_and_are_consistent(con):  # noqa: F811
     for fn in (B.group_share_by_year, B.country_rank, B.kr_collab_matrix):
         fn(con, f)
     B.kr_school_world_rank_by_year(con, f, B.kr_schools(con))
-    for fn in (B.korean_landscape, B.mobility, B.talent_matrix):
+    B.talent_matrix(con, f)
+    for fn in (B.korean_landscape, B.mobility):
         fn(con)
     B.kr_faculty_age_output(con, f)
     if B.kr_schools(con):

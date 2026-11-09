@@ -15,6 +15,8 @@ ui.require_db()
 st.title("한국인 연구자")
 st.caption("한국인 여부는 이름·공저 기반 추정, 소속은 본인 논문의 OpenAlex 소속, 나이는 확인값 또는 추정값입니다. "
            "모든 데이터는 로컬 암호화 DB에서만 읽습니다.")
+f = ui.board_filter("p", credit=False)
+st.caption("위 기간·분야 필터는 인재 풀, 국내 교수 실적, 해외 한국인 교수 섹션에 적용됩니다 (현재 소속·이동 차트는 전체 기준).")
 c = ui.con()
 land = B.korean_landscape(c)
 
@@ -108,7 +110,7 @@ with c2:
 # ── talent matrix ──
 st.subheader("인재 풀: 분야 × 경력 단계")
 loc = st.radio("위치", ["전체", "해외만", "국내만"], horizontal=True, key="p_loc")
-tm = B.talent_matrix(c)
+tm = B.talent_matrix(c, f)
 if loc == "해외만":
     tm = tm[tm.country.notna() & (tm.country != "kr")]
 elif loc == "국내만":
@@ -118,20 +120,19 @@ if excl:
     tm = tm[tm.role != "KR faculty"]
 if not tm.empty:
     piv = tm.pivot_table(index="area", columns="stage", values="person", aggfunc="count").fillna(0)
-    piv = piv.loc[piv.sum(axis=1).sort_values(ascending=False).index]
+    piv = piv.reindex([k for k in B.FIELDS if k in piv.index])
     fig = go.Figure(go.Heatmap(
-        z=piv.values, x=piv.columns, y=piv.index, colorscale=ui.seq_scale(), xgap=2, ygap=2,
+        z=piv.values, x=piv.columns, y=[f"{k} · {B.FIELDS[k][0]}" for k in piv.index], colorscale=ui.seq_scale(), xgap=2, ygap=2,
         text=piv.astype(int).values, texttemplate="%{text}",
         hovertemplate="%{y} · %{x}<br>%{z:.0f}명<extra></extra>", colorbar=dict(title="명"),
     ))
     fig.update_yaxes(autorange="reversed")
-    fig.update_layout(title=f"최근 5년 활동한 한국인 연구자 수 ({loc}{', 국내 교수 제외' if excl else ''}) — 주 분야 × 학문적 나이")
+    fig.update_layout(title=f"{f.start}–{f.end}에 논문이 있는 한국인 연구자 수 ({loc}{', 국내 교수 제외' if excl else ''}) — 주 분야 × 학문적 나이")
     ui.plot(fig, height=max(480, 24 * len(piv) + 120), legend=False, key="p_talent")
-    st.caption("주 분야 = 최근 5년 논문이 가장 많은 분야. 학문적 나이는 대부분 추정값이라 ±2년 정도 오차가 있습니다.")
+    st.caption(f"주 분야 = {f.start}–{f.end} 논문이 가장 많은 분야 (상단 기간·분야 필터를 따름). 학문적 나이는 대부분 추정값이라 ±2년 정도 오차가 있습니다.")
 
 # ── age vs output ──
 st.subheader("국내 교수: 학문적 나이 대비 실적")
-f = ui.board_filter("p", credit=False)
 ao = B.kr_faculty_age_output(c, f)
 hl = st.multiselect("강조할 학교 (최대 4)", B.kr_schools(c), max_selections=4, key="p_hl",
                     default=[s for s in B.kr_schools(c)[:2]])

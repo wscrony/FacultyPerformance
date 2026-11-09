@@ -266,13 +266,14 @@ def school_trend(con, school: str, f: BF):
 
 
 
-def talent_matrix(con, years: int = 5):
-    """Korean researchers active in the last `years`: main area × career stage × location."""
+def talent_matrix(con, f: BF):
+    """Korean researchers active in the filter window: main department field × career stage × location."""
+    w, prm = f.where("a", "v")
     return con.execute(
         f"""
-        WITH act AS (SELECT a.name, v.area_title, sum(a.count) AS n FROM author_pub a JOIN venue v ON v.venue = a.venue
-                     WHERE a.year >= year(current_date) - ? AND NOT v.next_tier GROUP BY 1, 2),
-        main AS (SELECT name, arg_max(area_title, n) AS area, sum(n) AS papers FROM act GROUP BY 1)
+        WITH act AS (SELECT a.name, {_FIELD_SQL} AS field, sum(a.count) AS n
+                     FROM author_pub a JOIN venue v ON v.venue = a.venue WHERE {w} GROUP BY 1, 2),
+        main AS (SELECT name, arg_max(field, n) AS area, sum(n) AS papers FROM act GROUP BY 1)
         SELECT r.person, r.role, r.country, m.area, m.papers, a.academic_age,
                CASE WHEN a.academic_age < 0 THEN '① 박사 전 (추정)'
                     WHEN a.academic_age < 5 THEN '② 0–4년' WHEN a.academic_age < 10 THEN '③ 5–9년'
@@ -280,7 +281,7 @@ def talent_matrix(con, years: int = 5):
         FROM person_role r JOIN main m ON m.name = r.person LEFT JOIN person_age a ON a.person = r.person
         WHERE r.is_korean AND a.academic_age IS NOT NULL
         """,
-        [years],
+        prm,
     ).df()
 
 
