@@ -398,6 +398,17 @@ def update_dblp_extra(parse: bool = typer.Option(True, help="re-parse data/raw/d
     typer.echo(dblp_extra.reapply(pii.connect()))  # needs the write lock: stop the app first
 
 
+@update_app.command("departments")
+def update_departments(model: str = "opus", force: bool = False):
+    """Department of each KR faculty member (LLM knowledge; encrypted pii.department)."""
+    from fp import pii
+    from fp.ingest import llm_dept
+
+    con = pii.connect()
+    with _progress("departments", every=25) as cb:
+        typer.echo(llm_dept.update(con, model=model, force=force, progress=cb))
+
+
 @update_app.command("title-citations")
 def update_title_citations(force: bool = typer.Option(False), limit: Optional[int] = typer.Option(None)):
     """Citations for papers without a DOI (NeurIPS/ICLR/...), by exact title match on OpenAlex."""

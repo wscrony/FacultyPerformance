@@ -26,12 +26,13 @@ kr_tab = inst[inst.country == "kr"].sort_values("papers", ascending=False)
 pick_i = ui.clickable_table(
     kr_tab[["institution", "rank", "papers", "faculty", "per_faculty", "rank_norm"]].reset_index(drop=True),
     "s_rank_tab", "institution", link_label="기관", link_help="클릭하면 교수 수에 포함된 교수 명단이 아래에 열립니다",
-    height=min(460, 36 * len(kr_tab) + 40),
+    height=min(460, 36 * len(kr_tab) + 40), extra_links=["faculty"],
     column_config={
         "rank": st.column_config.NumberColumn("세계 순위 (논문 수)", format="%d위"),
         "papers": st.column_config.ProgressColumn("논문", format="%d", min_value=0,
                                                   max_value=int(kr_tab.papers.max() or 1)),
-        "faculty": st.column_config.NumberColumn("교수", format="%d명"),
+        "faculty": st.column_config.NumberColumn("교수 ↗", format="%d명",
+                                                 help="클릭하면 이 숫자에 들어간 교수 전원의 이름·학과·논문 수가 아래에 나옵니다"),
         "per_faculty": st.column_config.NumberColumn("교수 1인당 논문", format="%.1f"),
         "rank_norm": st.column_config.NumberColumn(
             "세계 순위 (1인당)", format="%d위",
@@ -39,13 +40,17 @@ pick_i = ui.clickable_table(
     },
 )
 st.caption(basis + f" 1인당 순위는 이 조건의 교수가 {B.MIN_FACULTY_NORM}명 이상인 전 세계 기관끼리 비교합니다. "
-           "파란 기관명을 클릭하면 교수 수에 포함된 교수 명단이 아래에 열립니다.")
+           "파란 기관명이나 교수 수를 클릭하면 그 숫자에 포함된 교수 전원의 명단이 아래에 열립니다.")
 if pick_i is not None:
     pick = kr_tab.iloc[pick_i]
     st.markdown(f"▼ **{pick.institution}** 선택됨 — 교수 명단 (다른 기관을 클릭하면 바뀝니다)")
     fl = B.institution_faculty(c, pick.institution, f)
     with st.container(border=True):
         st.markdown(f"**{pick.institution}** · 교수 {len(fl)}명 · 논문 {int(pick.papers):,}편 ({scope}, {f.start}–{f.end})")
+        if summ := B.institution_dept_summary(fl):
+            st.markdown(f"소속 학과 (추정): {summ}")
+            st.caption("CSrankings는 학과가 아니라 사람 단위라서, 컴퓨터공학과 외에 전기·전자, AI 대학원, 산업공학, "
+                       "디자인 등 top CS 학회에 논문을 내는 교수가 모두 '교수' 수에 들어갑니다. 학과는 LLM 지식 기반 추정입니다.")
         ui.people_table(
             ui.add_age(fl, after="name"), "s_rank_fac", f, height=min(520, 36 * len(fl) + 40),
             column_config={
@@ -53,6 +58,7 @@ if pick_i is not None:
                 "papers": st.column_config.ProgressColumn("논문", format="%d", min_value=0,
                                                           max_value=int(fl.papers.max() or 1)),
                 "main_field": "주 분야", "main_papers": "주 분야 논문", "by_field": "분야별 논문",
+                "dept_group": "학과 구분 (추정)", "department": "학과 (추정)",
             },
         )
         st.caption("교수 = CSrankings 명단의 현재 소속 기준, 이 조건에서 논문이 1편 이상인 사람. 개인 논문 수의 합은 "

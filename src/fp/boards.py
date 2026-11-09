@@ -415,4 +415,25 @@ def institution_faculty(con, institution: str, f: BF):
         prm + [institution],
     ).df()
     df.insert(0, "no", range(1, len(df) + 1))
+    dept = _departments(con)
+    if dept is not None and len(df):
+        df = df.merge(dept, how="left", left_on="name", right_on="person").drop(columns="person")
+        df.insert(2, "dept_group", df.pop("dept_group"))
+        df.insert(3, "department", df.pop("department"))
     return df
+
+
+def _departments(con):
+    """LLM-estimated department per KR faculty member (pii.department), or None when not collected."""
+    if not con.execute("SELECT count(*) FROM duckdb_tables() WHERE database_name = 'pii' AND table_name = 'department'"
+                       ).fetchone()[0]:
+        return None
+    return con.execute("SELECT person, department, dept_group FROM pii.department").df()
+
+
+def institution_dept_summary(df) -> str:
+    """'컴퓨터/소프트웨어 70 · 전기·전자 25 · …' for an institution_faculty frame."""
+    if "dept_group" not in df:
+        return ""
+    vc = df.dept_group.fillna("미상").value_counts()
+    return " · ".join(f"{k} {v}명" for k, v in vc.items())

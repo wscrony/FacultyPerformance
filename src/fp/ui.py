@@ -246,10 +246,11 @@ def selected_row(key: str) -> int | None:
     return rows[0] if rows else None
 
 
-def link_style(df: pd.DataFrame, link_col: str = "name", selected: int | None = None):
-    """Clickable column styled like a link; the selected row highlighted (Styler keeps selection working)."""
+def link_style(df: pd.DataFrame, link_col: str | list[str] = "name", selected: int | None = None):
+    """Clickable column(s) styled like a link; the selected row highlighted (Styler keeps selection working)."""
     c = link_color()
-    sty = df.style.map(lambda _: f"color: {c}; text-decoration: underline; font-weight: 600", subset=[link_col])
+    cols = [link_col] if isinstance(link_col, str) else list(link_col)
+    sty = df.style.map(lambda _: f"color: {c}; text-decoration: underline; font-weight: 600", subset=cols)
     if selected is not None and 0 <= selected < len(df):
         bg = "rgba(57,135,229,0.28)" if mode() == "dark" else "rgba(42,120,214,0.16)"
         sty = sty.apply(lambda r: [f"background-color: {bg}; font-weight: 700" if r.name == df.index[selected]
@@ -284,7 +285,7 @@ def _explain_age_source(df: pd.DataFrame, cc: dict) -> pd.DataFrame:
 
 def clickable_table(df: pd.DataFrame, key: str, link_col: str, column_config: dict | None = None,
                     link_label: str | None = None, link_help: str = "클릭하면 아래에 자세한 정보가 열립니다",
-                    height: int | None = None, **kw) -> int | None:
+                    height: int | None = None, extra_links: list[str] | None = None, **kw) -> int | None:
     """Selectable table: link-styled column (▸ header), selected row highlighted. Returns the selected row."""
     cc = dict(column_config or {})
     df = _explain_age_source(df, cc)
@@ -292,7 +293,7 @@ def clickable_table(df: pd.DataFrame, key: str, link_col: str, column_config: di
     cc[link_col] = st.column_config.TextColumn(f"{lbl} ↗", help=link_help)
     pick = selected_row(key)
     pick = pick if pick is not None and pick < len(df) else None
-    st.dataframe(link_style(df, link_col, pick), hide_index=True, width="stretch", key=key, on_select="rerun",
+    st.dataframe(link_style(df, [link_col, *(extra_links or [])], pick), hide_index=True, width="stretch", key=key, on_select="rerun",
                  selection_mode=["single-row", "single-cell"],
                  height=height or min(460, 36 * len(df) + 40), column_config=cc, **kw)
     return pick
