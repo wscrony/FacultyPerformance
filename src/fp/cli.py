@@ -180,6 +180,30 @@ def update_orcid(
     console.print(stats)
 
 
+@update_app.command("homepage")
+def update_homepage(
+    scope: str = typer.Option("kr"),
+    force: bool = typer.Option(False, help="refetch even if fetched recently"),
+    limit: Optional[int] = typer.Option(None),
+    no_llm: bool = typer.Option(False, "--no-llm", help="regex only; nothing leaves this machine except page fetches"),
+    workers: int = typer.Option(4),
+):
+    """Extract degree/birth years from homepages/CVs of people still missing a PhD year."""
+    from rich.progress import Progress
+
+    from fp import pii
+    from fp.ingest import homepage
+
+    con = pii.connect()
+    with Progress(console=console) as prog:
+        task = prog.add_task("homepage", total=None)
+        stats = homepage.update(
+            con, scope=scope, force=force, limit=limit, use_llm=not no_llm, workers=workers,
+            progress=lambda n, tot: prog.update(task, completed=n, total=tot),
+        )
+    console.print(stats)
+
+
 @app.command()
 def candidates(
     start: int = typer.Option(THIS_YEAR - 5, "--from"), end: int = End, area: Optional[str] = Area,
