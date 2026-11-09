@@ -84,9 +84,18 @@ with tab_school:
         c1, c2 = st.container(), st.container()
         with c1:
             st.subheader("순위")
+            t = top[["institution", "score", "faculty", "pubs_total", "pubs_per_faculty"]].round(2)
+            t.insert(0, "rank", t.score.rank(method="min", ascending=False).astype(int))
             st.dataframe(
-                top[["institution", "score", "faculty", "pubs_total", "pubs_per_faculty"]].round(2),
-                hide_index=False, width="stretch", height=min(560, 36 * len(top) + 40),
+                t, hide_index=True, width="stretch", height=min(560, 36 * len(top) + 40),
+                column_config={
+                    "rank": st.column_config.NumberColumn("순위", format="%d위", width="small"),
+                    "institution": "기관",
+                    "score": st.column_config.NumberColumn("점수", help="분야별 (논문 수+1)의 기하평균"),
+                    "faculty": st.column_config.NumberColumn("교수", format="%d명"),
+                    "pubs_total": st.column_config.NumberColumn("논문"),
+                    "pubs_per_faculty": st.column_config.NumberColumn("교수 1인당 논문", format="%.1f"),
+                },
             )
         with c2:
             st.subheader("학교 × 분야 (논문 수)")
