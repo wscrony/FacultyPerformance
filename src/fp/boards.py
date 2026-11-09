@@ -226,14 +226,22 @@ def mobility(con, min_gap: int = 3):
     ).df()
 
 
+def _has_view(con, name: str) -> bool:
+    return bool(con.execute("SELECT count(*) FROM duckdb_views() WHERE view_name = ?", [name]).fetchone()[0])
+
+
 def kr_faculty_age_output(con, f: BF):
     """KR faculty: academic age vs papers in the filter window."""
     w, prm = f.where("p")
     return con.execute(
         f"""
-        WITH out AS (SELECT a.name, count(*) AS papers FROM dblp_authorship a JOIN dblp_paper p USING (key)
-                     JOIN venue v ON v.venue = p.venue WHERE {w} GROUP BY 1)
-        SELECT r.person, r.affiliation, a.academic_age, a.age_source, coalesce(o.papers, 0) AS papers
+        WITH out AS (SELECT a.name, count(*) AS papers, sum(c.cited_by) AS cites,
+                            count(*) FILTER (WHERE a.pos = 1) AS first_au
+                     FROM dblp_authorship a JOIN dblp_paper p USING (key)
+                     JOIN venue v ON v.venue = p.venue {"LEFT JOIN paper_cites c ON c.key = a.key" if _has_view(con, "paper_cites") else "LEFT JOIN (SELECT NULL::VARCHAR AS key, NULL::BIGINT AS cited_by) c ON FALSE"}
+                     WHERE {w} GROUP BY 1)
+        SELECT r.person, r.affiliation, a.academic_age, a.age_source, coalesce(o.papers, 0) AS papers,
+               coalesce(o.cites, 0)::BIGINT AS cites, coalesce(o.first_au, 0) AS first_au
         FROM person_role r JOIN person_age a ON a.person = r.person LEFT JOIN out o ON o.name = r.person
         WHERE r.role = 'KR faculty' AND a.academic_age IS NOT NULL
         """,
