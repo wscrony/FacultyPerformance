@@ -390,3 +390,26 @@ def test_title_citation_match_takes_max_of_exact_versions(monkeypatch):
 
     ids, cites = citations.fetch_title("A Simple Unified Framework for Detecting X.", 2018, S(), None)
     assert cites == 1258 and ids == "W1,W2"  # max over versions; non-identical title ignored
+
+
+def test_batched_title_search_matches_each_title():
+    from fp.ingest import citations
+
+    class R:
+        status_code, ok, headers = 200, True, {}
+
+        def json(self):
+            return {"meta": {"count": 3}, "results": [
+                {"id": "https://openalex.org/W1", "display_name": "Paper One.", "cited_by_count": 10, "publication_year": 2018},
+                {"id": "https://openalex.org/W2", "display_name": "paper one", "cited_by_count": 30, "publication_year": 2019},
+                {"id": "https://openalex.org/W3", "display_name": "Paper Two", "cited_by_count": 7, "publication_year": 2010},
+            ]}
+
+    class S:
+        def get(self, url, params=None, timeout=None):
+            assert params["search"] == '"Paper One" OR "Paper Two"'
+            return R()
+
+    got = citations.fetch_titles([("k1", "Paper One.", 2018), ("k2", "Paper Two", 2020)], S(), None)
+    assert got["k1"] == ("W1,W2", 30)
+    assert got["k2"] == (None, None)  # year off by 10 → not the same paper
