@@ -132,6 +132,10 @@ with tab_school:
             st.subheader("순위")
             t = top[["institution", "score", "faculty", "pubs_total", "pubs_per_faculty"]].round(2)
             t.insert(0, "rank", t.score.rank(method="min", ascending=False).astype(int))
+            sc = metrics.school_citations(con(), F).set_index("institution")
+            t["cites"] = t.institution.map(sc.cites).fillna(0).astype(int)
+            t["cites_per_faculty"] = (t.cites / t.faculty).round(0).astype(int)
+            t["cite_cov"] = (100 * t.institution.map(sc.cited_papers) / t.institution.map(sc.papers)).round(0)
             st.dataframe(
                 t, hide_index=True, width="stretch", height=min(560, 36 * len(top) + 40),
                 column_config={
@@ -141,6 +145,14 @@ with tab_school:
                     "faculty": st.column_config.NumberColumn("교수", format="%d명"),
                     "pubs_total": st.column_config.NumberColumn("논문"),
                     "pubs_per_faculty": st.column_config.NumberColumn("교수 1인당 논문", format="%.1f"),
+                    "cites": st.column_config.NumberColumn(
+                        "피인용", format="localized",
+                        help="이 기간·분야에서 그 학교 교수들이 쓴 고유 논문의 OpenAlex 피인용 합 (같은 학교 교수끼리 "
+                             "공저한 논문은 한 번만). 논문 수 열은 교수별로 세어 공저를 중복 집계합니다"),
+                    "cites_per_faculty": st.column_config.NumberColumn("교수 1인당 피인용", format="localized"),
+                    "cite_cov": st.column_config.NumberColumn(
+                        "피인용 확보율", format="%d%%",
+                        help="피인용 값을 찾은 논문 비율. DOI 없는 논문(NeurIPS 등)의 제목 매칭이 진행 중이라 낮을 수 있음"),
                 },
             )
         with c2:

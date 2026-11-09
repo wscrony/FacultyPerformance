@@ -94,6 +94,27 @@ def school_ranking(con, f: Filter):
     ]
 
 
+def school_citations(con, f: Filter):
+    """Per institution: OpenAlex citations of the distinct papers (dblp key) its current faculty authored within
+    the filter. A paper co-authored by two faculty of the same school counts once. Needs the paper_cites view."""
+    where, params = f.where("p", "v", "i")
+    where = where.replace("p.dept", "x.dept")
+    return con.execute(
+        f"""
+        WITH x AS (SELECT DISTINCT f.affiliation AS dept, a.key
+                   FROM dblp_authorship a JOIN cs_faculty f ON f.name = a.name)
+        SELECT x.dept AS institution, sum(c.cited_by)::BIGINT AS cites,
+               count(c.cited_by) AS cited_papers, count(*) AS papers
+        FROM x JOIN dblp_paper p ON p.key = x.key JOIN venue v ON v.venue = p.venue
+        JOIN institution i ON i.institution = x.dept
+        LEFT JOIN paper_cites c ON c.key = x.key
+        WHERE {where}
+        GROUP BY 1
+        """,
+        params,
+    ).df()
+
+
 def faculty_table(con, f: Filter, limit: int | None = None):
     """Per-faculty totals within filter."""
     where, params = f.where()
