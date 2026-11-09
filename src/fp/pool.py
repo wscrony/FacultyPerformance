@@ -18,6 +18,7 @@ from typing import Callable
 from fp import korean
 
 HI, LO = 0.75, 0.4
+COAUTHOR_MIN_PRIOR = 0.45  # surnames common in Chinese (Wang, Yang, Yu…) never pass on co-authorship alone
 BATCH = 40
 
 PII_SCHEMA = """
@@ -138,10 +139,21 @@ def classify(
     co = kr_coauthor_counts(con, mid) if mid else {}
     still = []
     for n in mid:
-        if co.get(n, 0) >= 2:
+        if co.get(n, 0) >= 2 and korean.SURNAMES.get(korean.split_name(n)[0], 0) >= COAUTHOR_MIN_PRIOR:
             decided[n] = (True, decided[n][1], "coauthor", f"{co[n]} papers with KR faculty; {decided[n][3]}")
         else:
             still.append(n)
+
+    # reuse earlier LLM verdicts (the prompt input — name + top co-authors — rarely changes)
+    cached = {r[0]: (r[1], r[2]) for r in con.execute(
+        "SELECT person, is_korean, reason FROM pii.korean WHERE method = 'llm'").fetchall()}
+    fresh = []
+    for n in still:
+        if n in cached:
+            decided[n] = (cached[n][0], decided[n][1], "llm", cached[n][1])
+        else:
+            fresh.append(n)
+    still = fresh
 
     if still and (use_llm or judge):
         judge = judge or llm_judge()
@@ -172,6 +184,7 @@ def classify(
         "by_rule": sum(v[0] is True and v[2] == "rule" for v in vals),
         "by_coauthor": sum(v[2] == "coauthor" for v in vals),
         "by_llm": sum(v[0] is True and v[2] == "llm" for v in vals),
+        "llm_cached": len(cached),
         "undecided": sum(v[0] is None for v in vals),
         "llm_calls": (len(still) + BATCH - 1) // BATCH if (use_llm or judge) else 0,
     }

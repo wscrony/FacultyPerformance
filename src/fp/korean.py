@@ -22,8 +22,8 @@ SURNAMES: dict[str, float] = {
         "whang choo koo baik myaeng chwa kahng lyu nho rhyu youn yum yhang jhun jhang ihm kwag pahk".split(),
         0.92,
     ),
-    **dict.fromkeys("kang oh son sung seong chun cheon tak won bang ham bong nah rah shon kyung soh chey goh kho".split(), 0.75),
-    **dict.fromkeys("lee lim im min yun yi chung sim ra gil ki woo nam hahn kee nah".split(), 0.6),
+    **dict.fromkeys("oh son sung seong chun cheon tak won bang ham bong nah rah shon kyung soh chey goh kho".split(), 0.75),
+    **dict.fromkeys("lee lim im min yun yi chung sim ra gil ki woo nam hahn kee nah kang".split(), 0.6),
     **dict.fromkeys("han hong song ko koh ha ji na sul kook ok so no chang chong".split(), 0.45),
     **dict.fromkeys("yang jin an yu gong kong chu do".split(), 0.25),
     **dict.fromkeys("wang ma sun ryu".split(), 0.15),
@@ -95,6 +95,9 @@ def _token_evidence(tok: str) -> tuple[float, str]:
             return -0.4, f"not Korean syllables: {c!r}"
         syllables += len(seg)
     joined = "-".join(chunks)
+    if "ai" in joined:
+        # 'ai' is common in pinyin (Dakai, Kai) and rare in Korean romanization: no positive evidence
+        return 0.05, f"ambiguous 'ai' spelling ({joined})"
     if syllables > 3:
         return -0.3, f"{syllables} syllables ({joined})"
     if any(KOREAN_MARKERS.search(c) for c in chunks):

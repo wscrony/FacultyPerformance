@@ -25,6 +25,10 @@ def test_non_korean_low(name):
     assert korean.score(name).score < 0.4, korean.score(name)
 
 
+def test_pinyin_ai_is_not_auto_korean():
+    assert korean.score("Dakai Kang").score < 0.75
+
+
 def test_western_given_with_korean_surname_is_ambiguous():
     v = korean.score("Steven Whang")
     assert 0.4 <= v.score < 0.75 and v.reason == korean.WESTERN_ONLY
@@ -129,3 +133,25 @@ def test_candidates_korean_scope_includes_non_faculty(con):  # noqa: F811
     assert r["Young"]["role"] == "KR faculty"
     rows, _ = age.candidates(con, f, scope="world")
     assert {x[0] for x in rows} == {"Old", "Young", "Mid", "Abroad"}
+
+
+def test_chinese_surname_not_korean_by_coauthorship_alone(con):  # noqa: F811
+    _add_author_pub(con)
+    con.execute("INSERT INTO author_pub VALUES ('Jindong Wang', 'sigmod', 2022, 3, 1.0, 1, 0)")
+    con.executemany("INSERT INTO dblp_authorship VALUES (?,?,?,?,NULL)",
+                    [("k3", 1, "Jindong Wang", "x"), ("k3", 2, "Young", "x"),
+                     ("k4", 1, "Jindong Wang", "x"), ("k4", 2, "Mid", "x")])
+    seen = []
+    pool.classify(con, since=2016, min_pubs=1, judge=lambda items: seen.extend(n for _, n, _ in items) or {})
+    assert "Jindong Wang" in seen or "Jindong Wang" not in dict(
+        con.execute("SELECT person, is_korean FROM pii.korean WHERE is_korean").fetchall())
+
+
+def test_llm_verdicts_are_cached(con):  # noqa: F811
+    _add_author_pub(con)
+    con.execute("INSERT INTO author_pub VALUES ('Jinwoo Song', 'sigmod', 2022, 3, 1.0, 1, 0)")
+    calls = []
+    j = lambda items: calls.append([n for _, n, _ in items]) or {i: (True, 0.9) for i, _, _ in items}
+    pool.classify(con, since=2016, min_pubs=1, judge=j)
+    pool.classify(con, since=2016, min_pubs=1, judge=j)
+    assert len(calls) == 1
