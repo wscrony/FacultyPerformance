@@ -306,3 +306,38 @@ def test_verify_and_manual_override(con):  # noqa: F811
     con.execute("INSERT OR REPLACE INTO pii.korean (person, is_korean, method) VALUES ('Minji Kim', TRUE, 'manual')")
     age.create_views(con)
     assert dict(con.execute("SELECT person, is_korean FROM korean_eff").fetchall())["Minji Kim"] is True
+
+
+def test_llm_degree_ranked_below_confirmed_and_shown_as_estimate(con):  # noqa: F811
+    from fp.ingest import llm_degree
+
+    _add_author_pub(con)
+    age.create_views(con)
+    rows = llm_degree.targets(con)
+    names = [r[0] for r in rows]
+    assert names, "faculty without confirmed PhD should be targets"
+    # judge: knows one person (plausible), "knows" another implausibly late, unsure about the rest
+    first = {r[0]: r[2] for r in rows}
+    a, b = names[0], names[-1]
+
+    def judge(items):
+        out = {}
+        for i, n, _, ft in items:
+            if n == a:
+                out[i] = ((ft or 2010) - 3, "Univ X", 0.9)
+            elif n == b and n != a:
+                out[i] = ((ft or 2010) + 20, "Univ Y", 0.9)
+            else:
+                out[i] = (None, None, 0.2)
+        return out
+
+    st = llm_degree.update(con, judge=judge)
+    assert st["asked"] == len(names) and st["found"] == 1
+    age.create_views(con)
+    src, phd = con.execute("SELECT age_source, phd_year FROM person_age WHERE person = ?", [a]).fetchone()
+    assert src == "est:llm" and phd == (first[a] or 2010) - 3
+    assert llm_degree.targets(con) == []  # asked recently
+    # a confirmed source still wins over the model's answer
+    con.execute("INSERT INTO pii.degree (person, degree, year, source, confidence) VALUES (?, 'phd', 1999, 'orcid', 1)", [a])
+    age.create_views(con)
+    assert con.execute("SELECT age_source, phd_year FROM person_age WHERE person = ?", [a]).fetchone() == ("orcid", 1999)

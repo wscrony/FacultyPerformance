@@ -273,6 +273,24 @@ def update_dblp(force: bool = typer.Option(False)):
     console.print({"parity_vs_csrankings_kr": dblp.check_against_csrankings(con)})
 
 
+@update_app.command("degree-llm")
+def update_degree_llm(
+    model: str = typer.Option("opus", help="claude model for the knowledge lookup"),
+    calibrate: bool = typer.Option(False, help="only measure accuracy on people with confirmed PhD years"),
+    force: bool = typer.Option(False, help="re-ask people asked in the last 180 days"),
+):
+    """PhD year from LLM knowledge for faculty (KR + Korean abroad) with no ORCID/homepage degree."""
+    from fp import pii
+    from fp.ingest import llm_degree
+
+    con = pii.connect()
+    if calibrate:
+        console.print(llm_degree.calibrate(con, model=model))
+        return
+    with _progress("degree-llm", every=1) as cb:
+        console.print(llm_degree.update(con, model=model, force=force, progress=cb))
+
+
 @update_app.command("korean")
 def update_korean(
     since: int = typer.Option(THIS_YEAR - 10, help="pool: active since this year"),

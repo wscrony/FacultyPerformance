@@ -1,7 +1,7 @@
 """Academic age + birth-year estimate + cohort percentile. Requires a pii.connect() connection.
 
 Resolution order (docs/SPEC.md §8.3):
-  phd_year : manual > orcid > homepage   (else estimated as first top-venue year + PHD_AFTER_FIRST_TOP, i.e. −2)
+  phd_year : manual > orcid > homepage > llm (model knowledge, shown as estimate)   (else estimated as first top-venue year + PHD_AFTER_FIRST_TOP, i.e. −2)
   birth    : manual/homepage birth year  > phd-30 > bs-23 > first top-venue year - 27
 All views are TEMP so nothing derived from PII is persisted into public.duckdb.
 """
@@ -16,7 +16,7 @@ from fp import metrics
 # (IQR −4…+2, n=610); PhD − BS median 7 years (IQR 6–9, n=388). With BS at ~23 → PhD at ~30.
 PHD_AFTER_FIRST_TOP = -2
 BIRTH_BEFORE = {"phd": 30, "bs": 23, "first_top": 28}
-SOURCE_RANK = "CASE source WHEN 'manual' THEN 0 WHEN 'orcid' THEN 1 WHEN 'homepage' THEN 2 ELSE 9 END"
+SOURCE_RANK = "CASE source WHEN 'manual' THEN 0 WHEN 'orcid' THEN 1 WHEN 'homepage' THEN 2 WHEN 'llm' THEN 3 ELSE 9 END"
 
 
 def _ensure_author_pub(con) -> None:
@@ -127,7 +127,8 @@ def create_views(con, this_year: int | None = None) -> None:
            phd.year AS phd_year, phd.institution AS phd_institution, phd.source AS phd_source,
            ft.first_top_year,
            coalesce(phd.year, ft.first_top_year + {PHD_AFTER_FIRST_TOP}) AS phd_year_eff,
-           CASE WHEN phd.year IS NOT NULL THEN phd.source
+           CASE WHEN phd.year IS NOT NULL AND phd.source = 'llm' THEN 'est:llm'  -- model knowledge: not "confirmed"
+                WHEN phd.year IS NOT NULL THEN phd.source
                 WHEN ft.first_top_year IS NOT NULL THEN 'est:first_top' END AS age_source,
            {y} - coalesce(phd.year, ft.first_top_year + {PHD_AFTER_FIRST_TOP}) AS academic_age,
            coalesce(b.year,
