@@ -117,9 +117,9 @@ with tab_school:
 # ───────────────────────── 교수·후보자 검색 ─────────────────────────
 
 with tab_search:
-    scope_lbl = {"kr": "국내 교수", "korean": "한국인 연구자 전체 (해외 교수·포닥·학생·산업체 포함)",
+    scope_lbl = {"kr": "국내 교수만", "korean": "한국인 연구자 전체 (교수·포닥·박사과정·산업체)",
                  "world": "전 세계 교수"}
-    scope = st.radio("검색 범위", list(scope_lbl), format_func=scope_lbl.get, horizontal=True, key="scope",
+    scope = st.radio("검색 범위", list(scope_lbl), format_func=scope_lbl.get, horizontal=True, key="scope", index=1,
                      help="포닥·학생 등 교수가 아닌 사람은 '한국인 연구자 전체'에서 나옵니다 (한국인으로 분류된 사람만 추적).")
     STAGES = ["국내 교수", "해외 교수", age.STUDENT, age.POSTDOC, age.SENIOR, age.INDUSTRY, age.UNKNOWN]
     roles, loc = None, "전체"
