@@ -262,6 +262,18 @@ def update_openalex(
     console.print(stats)
 
 
+@update_app.command("citations")
+def update_citations(force: bool = typer.Option(False), limit: Optional[int] = typer.Option(None, help="max DOIs")):
+    """Citation counts (OpenAlex, 100 DOIs/request) for top-venue papers of tracked people."""
+    from fp import pii
+    from fp.ingest import citations
+
+    con = pii.connect()
+    with _progress("OpenAlex citations") as cb:
+        stats = citations.update(con, force=force, limit=limit, progress=cb)
+    console.print(stats)
+
+
 @update_app.command("homepage")
 def update_homepage(
     scope: str = typer.Option("kr"),
@@ -317,7 +329,7 @@ def candidates(
 def _compact_age(rows, cols):
     """Terminal view: fold *_src columns into a '*' marker on estimated values."""
     ix = {c: i for i, c in enumerate(cols)}
-    out_cols = ["name", "institution", "role", "acad_age", "birth", "pubs", "adj", "1st/last", "pctl", "n"]
+    out_cols = ["name", "institution", "role", "acad_age", "birth", "pubs", "adj", "1st/last", "cites", "pctl", "n"]
     out = []
     for r in rows:
         est_age = r[ix["age_src"]] is None or r[ix["age_src"]].startswith("est")
@@ -327,6 +339,7 @@ def _compact_age(rows, cols):
             r[ix["name"]], r[ix["institution"]], r[ix["role"]], mark(r[ix["acad_age"]], est_age),
             mark(r[ix["birth_year"]], est_birth), r[ix["pubs"]], r[ix["adj"]],
             f"{r[ix['first_au']]}/{r[ix['last_au']]}",
+            "-" if r[ix["cites"]] is None else r[ix["cites"]],
             "-" if r[ix["cohort_pctl"]] is None else int(r[ix["cohort_pctl"]]), r[ix["cohort_n"]],
         ])
     return out, out_cols

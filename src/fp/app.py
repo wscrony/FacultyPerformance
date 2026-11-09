@@ -9,7 +9,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-from fp import age, metrics, pii
+from fp import age, links, metrics, pii
 
 THIS_YEAR = date.today().year
 # Reference categorical palette (dataviz skill, light mode), fixed order — color follows the entity.
@@ -165,7 +165,7 @@ with tab_search:
         f"{len(cdf)}명 · pctl = 국내 교수 중 같은 분야, 학문적 나이 ±{window}년 집단에서의 백분위 (기간 {yr[0]}–{yr[1]})"
     )
     view = cdf[["name", "institution", "role", "affil_year", "acad_age", "추정", "phd_year", "birth_year", "pubs", "adj",
-                "first_au", "last_au", "cohort_pctl", "cohort_n", "age_src"]]
+                "first_au", "last_au", "cites", "cohort_pctl", "cohort_n", "age_src"]]
     st.dataframe(
         view, hide_index=True, width="stretch", height=420,
         column_config={
@@ -177,6 +177,9 @@ with tab_search:
             "affil_year": st.column_config.NumberColumn("소속 연도", format="%d",
                                                         help="비교수: 소속을 확인한 가장 최근 논문의 연도 (OpenAlex)"),
             "first_au": st.column_config.NumberColumn("1저자"),
+            "cites": st.column_config.NumberColumn(
+                "피인용", help="대상 학회 논문 중 DOI가 있는 논문의 OpenAlex 피인용 합 (경력 전체). "
+                             "NeurIPS·ICML·ICLR·USENIX 등 DOI 없는 학회는 빠져 있어 ML·시스템 분야는 과소집계"),
             "last_au": st.column_config.NumberColumn("마지막저자"),
         },
     )
@@ -202,6 +205,9 @@ with tab_search:
         who = chosen[0]
         st.divider()
         st.subheader(who)
+        lk = links.person_links(con(), who)
+        st.markdown(" · ".join(
+            f"[{k}{' (검색)' if kind == 'search' else ''}]({u})" for k, (u, kind) in lk.items()))
         d1, d2 = st.columns([2, 3])
         with d1:
             st.markdown("**학위·나이 근거** (로컬 암호화 DB)")

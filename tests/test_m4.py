@@ -183,3 +183,40 @@ def test_openalex_affiliation_by_position_and_name(con):  # noqa: F811
     assert r["Minji Kim"]["institution"] == "Stanford University"
     assert r["Minji Kim"]["role"] == "other · abroad" and r["Minji Kim"]["affil_year"] == 2024
     assert openalex.name_match("Wook-Shin Han", "W.-S. Han") and not openalex.name_match("Sungjin Lee", "Sangmin Lee")
+
+
+def test_scholar_links():
+    from fp import links
+
+    u, k = links.scholar("Wook-Shin Han", "AbCdEfGhIjKl")
+    assert k == "profile" and u.endswith("user=AbCdEfGhIjKl&hl=en")
+    u, k = links.scholar("Sungjin Lee 0001", "NOSCHOLARPAGE", "KAIST")
+    assert k == "search" and "mauthors=Sungjin+Lee+KAIST" in u
+
+
+def test_citations_update_and_budget_stop(con):  # noqa: F811
+    from fp.ingest import citations
+
+    _add_author_pub(con)
+    pool.classify(con, since=2016, min_pubs=1, use_llm=False)
+    con.execute("""CREATE OR REPLACE TABLE dblp_paper (key VARCHAR, venue VARCHAR, year INTEGER, n_authors SMALLINT,
+                   title VARCHAR, page_count INTEGER, doi VARCHAR)""")
+    con.executemany("INSERT INTO dblp_paper VALUES (?, 'sigmod', 2022, 1, 't', 12, ?)",
+                    [(f"c{i}", f"10.9/{i:03d}") for i in range(150)] + [("nodoi", None)])
+    con.executemany("INSERT INTO dblp_authorship VALUES (?, 1, 'Minji Kim', 'Minji Kim', NULL)",
+                    [(f"c{i}",) for i in range(150)] + [("nodoi",)])
+    calls = []
+
+    def fake(dois, sess, key):
+        calls.append(len(dois))
+        if len(calls) == 2:
+            raise citations.BudgetExhausted("daily budget")
+        return {d: 2 for d in dois if not d.endswith("7")}
+
+    st = citations.update(con, fetch=fake)
+    assert calls == [100, 50] and st["stopped"] and st["requests"] == 1
+    st = citations.update(con, fetch=lambda d, s, k: {x: 1 for x in d})  # resumes with the remaining 50
+    assert st["dois"] == 50
+    rows, cols = age.candidates(con, metrics.Filter(start=2016, end=2026), scope="korean")
+    r = {row[0]: dict(zip(cols, row)) for row in rows}["Minji Kim"]
+    assert r["cites"] == 90 * 2 + 50 * 1 and r["cited_papers"] == 140 and r["top_papers"] == 151

@@ -29,9 +29,33 @@ def _ensure_author_pub(con) -> None:
         )
 
 
+def _has_table(con, name: str) -> bool:
+    return con.execute(
+        "SELECT count(*) FROM duckdb_tables() WHERE table_name = ? AND database_name = current_database()", [name]
+    ).fetchone()[0] > 0
+
+
+def _create_cites_view(con) -> None:
+    """person_cites: career citations of the person's top-venue DOI papers (OpenAlex), + DOI coverage."""
+    if all(_has_table(con, t) for t in ("oa_cites", "dblp_paper", "dblp_authorship")):
+        con.execute(
+            """CREATE OR REPLACE TEMP VIEW person_cites AS
+               SELECT a.name AS person, sum(c.cited_by)::BIGINT AS cites,
+                      count(c.cited_by) AS cited_papers, count(*) AS papers
+               FROM dblp_authorship a JOIN dblp_paper p USING (key) LEFT JOIN oa_cites c ON c.doi = p.doi
+               GROUP BY 1"""
+        )
+    else:
+        con.execute(
+            """CREATE OR REPLACE TEMP VIEW person_cites AS
+               SELECT NULL::VARCHAR AS person, NULL::BIGINT AS cites, 0 AS cited_papers, 0 AS papers WHERE false"""
+        )
+
+
 def create_views(con, this_year: int | None = None) -> None:
     y = this_year or date.today().year
     _ensure_author_pub(con)
+    _create_cites_view(con)
     con.execute(
         f"""
     CREATE OR REPLACE TEMP VIEW deg_best AS
@@ -180,13 +204,14 @@ def candidates(
     )
     SELECT s.name, coalesce(r.affiliation, '-') AS institution, r.role, r.affil_year,
            a.academic_age, a.phd_year, a.age_source, a.birth_year, a.birth_source,
-           s.pubs, round(s.adj, 2) AS adj, s.first_au, s.last_au,
+           s.pubs, round(s.adj, 2) AS adj, s.first_au, s.last_au, pc.cites, pc.cited_papers, pc.papers AS top_papers,
            (SELECT round(100.0 * avg(CASE WHEN q.adj < s.adj THEN 1 WHEN q.adj = s.adj THEN 0.5 ELSE 0 END), 0)
               FROM pop q WHERE abs(q.academic_age - a.academic_age) <= {int(cohort_window)}) AS cohort_pctl,
            (SELECT count(*) FROM pop q WHERE abs(q.academic_age - a.academic_age) <= {int(cohort_window)}) AS cohort_n
     FROM sel s
     JOIN person_role r ON r.person = s.name
     LEFT JOIN person_age a ON a.person = s.name
+    LEFT JOIN person_cites pc ON pc.person = s.name
     WHERE {scope_sql} {school_sql}
       AND s.adj >= ?
       AND (? IS NULL OR a.academic_age >= ?)
@@ -199,7 +224,7 @@ def candidates(
     ).fetchall()
     cols = [
         "name", "institution", "role", "affil_year", "acad_age", "phd_year", "age_src", "birth_year", "birth_src",
-        "pubs", "adj", "first_au", "last_au", "cohort_pctl", "cohort_n",
+        "pubs", "adj", "first_au", "last_au", "cites", "cited_papers", "top_papers", "cohort_pctl", "cohort_n",
     ]
     return rows, cols
 
