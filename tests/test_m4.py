@@ -96,14 +96,14 @@ def _add_author_pub(c):
             ("Abroad", "sigmod", 2019, 1, 1.0, 1, 0),
             ("Minji Kim", "sigmod", 2022, 4, 2.0, 3, 0),     # Korean postdoc, not faculty
             ("Wei Zhang 0042", "sigmod", 2022, 5, 2.5, 4, 0),  # not Korean
-            ("Steven Whang", "sigmod", 2022, 4, 1.5, 0, 3),   # ambiguous → co-author / judge
+            ("Seokhee Hong", "sigmod", 2022, 4, 1.5, 0, 3),   # ambiguous (Hong) + Korean spelling → co-authorship
         ],
     )
     c.execute("""CREATE OR REPLACE TABLE dblp_authorship (key VARCHAR, pos SMALLINT, name VARCHAR,
                  raw_name VARCHAR, orcid VARCHAR)""")
     c.executemany("INSERT INTO dblp_authorship VALUES (?,?,?,?,NULL)",
-                  [("k1", 1, "Steven Whang", "Steven Whang"), ("k1", 2, "Young", "Young"),
-                   ("k2", 1, "Steven Whang", "Steven Whang"), ("k2", 2, "Mid", "Mid")])
+                  [("k1", 1, "Seokhee Hong", "Seokhee Hong"), ("k1", 2, "Young", "Young"),
+                   ("k2", 1, "Seokhee Hong", "Seokhee Hong"), ("k2", 2, "Mid", "Mid")])
 
 
 def test_pool_classify_rules_coauthor_and_judge(con):  # noqa: F811
@@ -117,7 +117,7 @@ def test_pool_classify_rules_coauthor_and_judge(con):  # noqa: F811
     st = pool.classify(con, since=2016, min_pubs=1, judge=judge)
     got = dict(con.execute("SELECT person, is_korean FROM pii.korean").fetchall())
     assert got["Minji Kim"] is True
-    assert got["Steven Whang"] is True  # 2 papers with KR faculty (Young, Mid)
+    assert got["Seokhee Hong"] is True  # 2 papers with KR faculty (Young, Mid)
     assert "Wei Zhang 0042" not in got
     assert st["by_coauthor"] == 1
 
@@ -277,3 +277,32 @@ def test_rank_age_and_sort(con):  # noqa: F811
     assert pubs == sorted(pubs, reverse=True)
     with pytest.raises(ValueError):
         age.candidates(con, f, sort="nope")
+
+
+def test_western_or_pinyin_names_never_pass_on_coauthorship(con):  # noqa: F811
+    _add_author_pub(con)
+    for n in ("Ralf Jung", "Li Yi"):
+        con.execute("INSERT INTO author_pub VALUES (?, 'sigmod', 2022, 3, 1.0, 1, 0)", [n])
+        con.executemany("INSERT INTO dblp_authorship VALUES (?,?,?,?,NULL)",
+                        [(f"{n}1", 1, n, n), (f"{n}1", 2, "Young", "Young"), (f"{n}2", 1, n, n), (f"{n}2", 2, "Mid", "Mid")])
+    seen = []
+    pool.classify(con, since=2016, min_pubs=1,
+                  judge=lambda items: seen.extend(n for _, n, _ in items) or {i: (False, 0.9) for i, _, _ in items})
+    got = dict(con.execute("SELECT person, is_korean FROM pii.korean").fetchall())
+    assert got.get("Ralf Jung") is not True and got.get("Li Yi") is not True
+    assert korean.score("Michael R. Lyu").score < 0.4
+
+
+def test_verify_and_manual_override(con):  # noqa: F811
+    _add_author_pub(con)
+    con.execute("INSERT INTO cs_faculty VALUES ('Minji Kim', 'Z', '', '', '')")  # faculty abroad (Z = de)
+    pool.classify(con, since=2016, min_pubs=1, use_llm=False)
+    st = pool.verify(con, judge=lambda items: {i: (False, 0.95) for i, _, _ in items})
+    assert st["rejected"] >= 1
+    age.create_views(con)
+    eff = dict(con.execute("SELECT person, is_korean FROM korean_eff").fetchall())
+    assert eff["Minji Kim"] is False
+    assert pool.verify_targets(con) == []  # verified recently → not re-checked
+    con.execute("INSERT OR REPLACE INTO pii.korean (person, is_korean, method) VALUES ('Minji Kim', TRUE, 'manual')")
+    age.create_views(con)
+    assert dict(con.execute("SELECT person, is_korean FROM korean_eff").fetchall())["Minji Kim"] is True

@@ -19,12 +19,12 @@ SURNAMES: dict[str, float] = {
         "heo huh hur kwak gwak byun byeon pyun pyeon chae eom um uhm seo suh shin jang jeon yoo ryu ryoo "
         "rhee moon mun noh roh sohn shon cha joo shim yeo yeom myung myeong pyo maeng seok yook yuk seol "
         "kye yim rim rhim jee hyun hyeon jegal sunwoo namgoong namkung hwangbo dokgo seonwoo "
-        "whang choo koo baik myaeng chwa kahng lyu nho rhyu youn yum yhang jhun jhang ihm kwag pahk".split(),
+        "whang choo koo baik myaeng chwa kahng nho rhyu youn yum yhang jhun jhang ihm kwag pahk".split(),
         0.92,
     ),
     **dict.fromkeys("oh son sung seong chun cheon tak won bang ham bong nah rah shon kyung soh chey goh kho".split(), 0.75),
     **dict.fromkeys("lee lim im min yun yi chung sim ra gil ki woo nam hahn kee nah kang".split(), 0.6),
-    **dict.fromkeys("han hong song ko koh ha ji na sul kook ok so no chang chong".split(), 0.45),
+    **dict.fromkeys("han hong song ko koh ha ji na sul kook ok so no chang chong lyu".split(), 0.45),
     **dict.fromkeys("yang jin an yu gong kong chu do".split(), 0.25),
     **dict.fromkeys("wang ma sun ryu".split(), 0.15),
 }
@@ -42,9 +42,23 @@ KOREAN_MARKERS = re.compile(
 )
 # spellings typical of Hanyu pinyin / Vietnamese / Japanese, rare in Korean names
 FOREIGN_MARKERS = re.compile(
-    r"[xqzfv]|c(?![hk])|zh|ao|iu|ian|iao|uan|uai|uo|ei|ie|ia(?!n)|(?<!y)ou(?!ng)|ing$|eng$|(?<!e)en$|"
+    r"[xqzfv]|c(?![hk])|zh|ao|iu|ian|iao|uan|uai|uo|ei|ie|ia(?!n)|(?<![uoy])eng|(?<!y)ou(?!ng)|ing$|eng$|(?<!e)en$|"
     r"^(?:thi|van|duc|minh|thanh|nguyen|takashi|hiroshi|yuki|kenji|taro)$|tsu|shi$"
 )
+
+
+# Common Western given names: never evidence of a Korean name, whatever syllables they segment into
+# ('Michael' would otherwise match the Korean-only 'ae').
+WESTERN = set("""
+aaron adam alan albert alex alexander alice amy andrea andrew angela anna anne anthony arthur ben benjamin
+brian bryan carl caroline catherine charles chris christian christina christine christopher claire daniel
+david diana edward elizabeth emily emma eric erica ernest eugene frank gabriel george grace gregory hannah
+helen henry isaac jack jacob james jane janet jason jeff jeffrey jennifer jessica joe john jonathan joseph
+joshua julia julie justin karen kate katherine kenneth kevin kim laura lawrence leo linda lisa louis lucy
+mark martha martin mary matthew michael michelle mike nancy nathan nicholas nicole oliver patrick paul peter
+philip rachel ralf ray raymond rebecca richard robert ryan sam samuel sandra sara sarah scott sean sophia
+stanley stephen steve steven susan ted theodore thomas tim timothy tom victor victoria william
+""".split())
 
 
 @dataclass
@@ -83,6 +97,8 @@ def _segments(word: str) -> list[str] | None:
 
 
 def _token_evidence(tok: str) -> tuple[float, str]:
+    if tok.lower() in WESTERN:
+        return -0.6, f"western given name {tok!r}"
     chunks = [p.lower() for p in re.split(r"-|(?<=[a-z])(?=[A-Z])", tok) if p]
     syllables = 0
     for c in chunks:

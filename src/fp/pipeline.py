@@ -7,7 +7,7 @@ import traceback
 from datetime import date
 from typing import Callable
 
-STEPS = ["csrankings", "dblp", "korean", "orcid", "homepage", "openalex", "citations", "snapshot", "report"]
+STEPS = ["csrankings", "dblp", "korean", "korean_verify", "orcid", "homepage", "openalex", "citations", "snapshot", "report"]
 
 
 def run_all(log: Callable[[str], None] = print, skip: set[str] | None = None, use_llm: bool = True) -> dict:
@@ -52,6 +52,7 @@ def run_all(log: Callable[[str], None] = print, skip: set[str] | None = None, us
 
         step("dblp", do_dblp)
         step("korean", lambda: pool.classify(con, since=date.today().year - 10, use_llm=use_llm))
+        step("korean_verify", lambda: pool.verify(con) if use_llm else "skipped (no llm)")
         step("orcid", lambda: {s: orcid.update(con, scope=s) for s in ("kr", "korean")})
         step("homepage", lambda: homepage.update(con, scope="kr", use_llm=use_llm))
         step("openalex", lambda: openalex.update(con))

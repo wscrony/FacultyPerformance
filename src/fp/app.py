@@ -2,46 +2,20 @@
 
 from __future__ import annotations
 
-from datetime import date
-
-import duckdb
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-from fp import age, links, metrics, pii
+from fp import age, links, metrics, pii  # noqa: F401
 
-THIS_YEAR = date.today().year
-# Reference categorical palette (dataviz skill, light mode), fixed order — color follows the entity.
-SERIES = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100"]
-SEQ_BLUE = [[0, "#eef4fc"], [0.5, "#5a9be6"], [1, "#0d3f80"]]
+from fp.ui import THIS_YEAR, con  # shared cursor (one DuckDB connection per process)
+from fp import ui
+
+SERIES = ui.series()
+SEQ_BLUE = ui.seq_scale()
 MAX_COMPARE = 4
 
-st.set_page_config(page_title="Faculty Performance", page_icon="📊", layout="wide")
-
-
-# ───────────────────────── data access ─────────────────────────
-
-
-@st.cache_resource
-def _root_con() -> duckdb.DuckDBPyConnection:
-    return pii.connect(read_only=True)
-
-
-def con() -> duckdb.DuckDBPyConnection:
-    """Per-run cursor (DuckDB connections aren't shared across threads); temp views are per cursor."""
-    if "cur" not in st.session_state:
-        c = _root_con().cursor()
-        age.create_views(c)
-        st.session_state.cur = c
-    return st.session_state.cur
-
-
-try:
-    con()
-except duckdb.IOException:
-    st.error("DB가 다른 작업(fp update …)에 의해 잠겨 있습니다. 갱신이 끝난 뒤 새로고침하세요.")
-    st.stop()
+ui.require_db()
 
 
 @st.cache_data
@@ -54,7 +28,7 @@ def people_list(country: str | None) -> list[str]:
     """Faculty ('name — affiliation') plus Korean pool members without a faculty listing ('name — -')."""
     fac = [f"{n} — {a}" for n, a in metrics.people(con(), country)]
     known = {x.split(" — ")[0] for x in fac}
-    pool = [r[0] for r in con().execute("SELECT person FROM pii.korean WHERE is_korean ORDER BY 1").fetchall()]
+    pool = [r[0] for r in con().execute("SELECT person FROM korean_eff WHERE is_korean ORDER BY 1").fetchall()]
     return fac + [f"{n} — -" for n in pool if n not in known]
 
 

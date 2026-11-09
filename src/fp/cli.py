@@ -186,7 +186,7 @@ def run_app(port: int = typer.Option(8501)):
     import sys
     from pathlib import Path
 
-    script = Path(__file__).with_name("app.py")
+    script = Path(__file__).with_name("main.py")
     subprocess.run([
         sys.executable, "-m", "streamlit", "run", str(script),
         "--server.address", "127.0.0.1", "--server.port", str(port),
@@ -278,6 +278,8 @@ def update_korean(
     since: int = typer.Option(THIS_YEAR - 10, help="pool: active since this year"),
     min_pubs: int = typer.Option(3, help="pool: min top-venue papers since --since"),
     no_llm: bool = typer.Option(False, "--no-llm", help="rules + co-authorship only"),
+    verify: bool = typer.Option(True, help="second opinion (Sonnet) for faculty abroad + top non-faculty"),
+    verify_top: int = typer.Option(300, help="how many top non-faculty to verify"),
 ):
     """Classify the candidate pool as Korean / not (stored in the encrypted PII DB)."""
     from fp import pii, pool
@@ -286,6 +288,9 @@ def update_korean(
     with _progress("korean-llm", every=1) as cb:
         stats = pool.classify(con, since=since, min_pubs=min_pubs, use_llm=not no_llm, progress=cb)
     console.print(stats)
+    if verify and not no_llm:
+        with _progress("korean-verify", every=1) as cb:
+            console.print(pool.verify(con, top_other=verify_top, progress=cb))
 
 
 @update_app.command("orcid")
@@ -404,6 +409,17 @@ def _compact_age(rows, cols):
             "-" if r[ix["cohort_pctl"]] is None else int(r[ix["cohort_pctl"]]), r[ix["cohort_n"]],
         ])
     return out, out_cols
+
+
+@pii_app.command("set-korean")
+def pii_set_korean(person: str, korean: bool = typer.Option(..., "--yes/--no", help="is the person Korean?")):
+    """Manual override of the Korean classification (wins over rules, LLM and verification)."""
+    from fp import pii
+
+    con = pii.connect()
+    con.execute("INSERT OR REPLACE INTO pii.korean (person, is_korean, score, method, reason) "
+                "VALUES (?, ?, NULL, 'manual', 'set by user')", [person, korean])
+    console.print(f"{person}: {'Korean' if korean else 'not Korean'} (manual)")
 
 
 @pii_app.command("show")

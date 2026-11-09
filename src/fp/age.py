@@ -78,11 +78,19 @@ def create_views(con, this_year: int | None = None) -> None:
     SELECT name AS person, min(year) AS first_top_year
     FROM (SELECT name, year FROM cs_pub UNION ALL SELECT name, year FROM author_pub) GROUP BY 1;
 
+    -- effective Korean flag: manual > second-opinion verify > rules/co-author/LLM
+    CREATE OR REPLACE TEMP VIEW korean_eff AS
+    SELECT k.person, CASE WHEN k.method = 'manual' THEN k.is_korean ELSE coalesce(v.is_korean, k.is_korean) END
+           AS is_korean
+    FROM pii.korean k LEFT JOIN pii.korean_verify v USING (person)
+    UNION ALL
+    SELECT v.person, v.is_korean FROM pii.korean_verify v WHERE v.person NOT IN (SELECT person FROM pii.korean);
+
     -- everyone we track: csrankings faculty + people classified Korean in the candidate pool
     CREATE OR REPLACE TEMP VIEW person_base AS
     SELECT name, first(affiliation) AS affiliation FROM cs_faculty GROUP BY name
     UNION ALL
-    SELECT k.person, NULL FROM pii.korean k
+    SELECT k.person, NULL FROM korean_eff k
     WHERE k.is_korean AND k.person NOT IN (SELECT name FROM cs_faculty);
 
     -- latest affiliation seen on the person's own papers (OpenAlex): most frequent institution in the latest year
@@ -112,7 +120,7 @@ def create_views(con, this_year: int | None = None) -> None:
     LEFT JOIN institution i ON i.institution = b.affiliation
     LEFT JOIN cur_affil ca ON ca.person = b.name
     LEFT JOIN inst_map im ON im.oa_name = ca.institution
-    LEFT JOIN pii.korean k ON k.person = b.name;
+    LEFT JOIN korean_eff k ON k.person = b.name;
 
     CREATE OR REPLACE TEMP VIEW person_age AS
     SELECT f.name AS person, f.affiliation,
