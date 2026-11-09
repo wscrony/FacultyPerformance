@@ -299,8 +299,18 @@ def clickable_table(df: pd.DataFrame, key: str, link_col: str, column_config: di
     df = _explain_age_source(df, cc)
     lbl = link_label or (cc.get(link_col) if isinstance(cc.get(link_col), str) else link_col)
     cc[link_col] = st.column_config.TextColumn(f"{lbl} ↗", help=link_help)
-    pick = selected_row(key)
-    pick = pick if pick is not None and pick < len(df) else None
+    # The widget reports a row *position* from the previous render. Resolve it to the row's value then (rows can
+    # come back in a different order on the next run — ties, filters), and keep following that value.
+    ss = st.session_state
+    sel = selected_row(key)
+    if sel != ss.get(f"_selidx_{key}"):  # a new click
+        ss[f"_selidx_{key}"] = sel
+        prev = ss.get(f"_rows_{key}") or list(df[link_col])
+        ss[f"_selval_{key}"] = prev[sel] if sel is not None and sel < len(prev) else None
+    val = ss.get(f"_selval_{key}")
+    vals = list(df[link_col])
+    pick = vals.index(val) if val is not None and val in vals else None
+    ss[f"_rows_{key}"] = vals
     st.dataframe(link_style(df, [link_col, *(extra_links or [])], pick), hide_index=True, width="stretch", key=key, on_select="rerun",
                  selection_mode=["single-row", "single-cell"],
                  height=height or min(460, 36 * len(df) + 40), column_config=cc, **kw)

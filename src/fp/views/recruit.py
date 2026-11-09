@@ -30,45 +30,63 @@ SORTS = {"field": "분야 논문", "per_year": "분야 연평균 (활동 연수 
 sort = b3.selectbox("정렬", list(SORTS), format_func=SORTS.get, key="rc_sort")
 nt = b4.toggle("확장 학회 포함", value=False, key="rc_nt")
 
-F = metrics.Filter(start=y0, end=y1, next_tier=nt, country=None)
-rows, cols = age.candidates(c, F, age_min=amin, age_max=amax, scope="korean", limit=None)
-cand = pd.DataFrame(rows, columns=cols)
-cand = cand[cand.role != "KR faculty"]
-stage = c.execute("SELECT person, stage FROM person_stage").df().set_index("person").stage
-cand["type"] = ["해외 교수" if r == "faculty abroad" else (stage.get(n) or "미상")
-                for n, r in zip(cand.name, cand.role)]
-cand["where"] = cand.role.map(lambda r: "해외" if "abroad" in r else ("국내" if "KR" in r else "미상"))
+@st.cache_data(ttl=3600, show_spinner="후보 계산 중…")
+def _compute(y0: int, y1: int, amin: int, amax: int, nt: bool, min_p: int, tv: float):
+    """All candidates per field (before the type/location filters). Cached: a click only reruns the page."""
+    from fp import age as _age
+
+    c = ui._root_con().cursor()
+    _age.create_views(c)
+    F = metrics.Filter(start=y0, end=y1, next_tier=nt, country=None)
+    rows, cols = _age.candidates(c, F, age_min=amin, age_max=amax, scope="korean", limit=None)
+    cand = pd.DataFrame(rows, columns=cols)
+    cand = cand[cand.role != "KR faculty"]
+    stage = c.execute("SELECT person, stage FROM person_stage").df().set_index("person").stage
+    cand["type"] = ["해외 교수" if r == "faculty abroad" else (stage.get(n) or "미상")
+                    for n, r in zip(cand.name, cand.role)]
+    cand["where"] = cand.role.map(lambda r: "해외" if "abroad" in r else ("국내" if "KR" in r else "미상"))
+    bf = B.BF(start=y0, end=y1, next_tier=nt)
+    pf = B.person_field_counts(c, list(cand.name), bf)
+    rc = B.person_field_counts(c, list(cand.name), B.BF(start=max(y0, y1 - 1), end=y1, next_tier=nt))
+    rc = rc.set_index(["name", "field"]).papers
+    main = pf.sort_values(["papers", "field"], ascending=[False, True]).drop_duplicates("name").set_index("name").field
+    krp = B.kr_faculty_field_rank(c, bf)
+    krp = krp[krp.field != "전체"]
+    out = {}
+    for k in B.FIELDS:
+        d = pf[(pf.field == k) & (pf.papers >= min_p)][["name", "papers"]].rename(columns={"papers": "field"})
+        d = d.merge(cand, on="name")
+        if d.empty:
+            continue
+        d["recent"] = [int(rc.get((n, k), 0)) for n in d.name]
+        d["active"] = (d.acad_age.fillna(0).clip(lower=-4) + 5).clip(lower=1, upper=y1 - y0 + 1)
+        d["per_year"] = (d.field / d.active).round(2)
+        d["first"] = d.first_au
+        d["main"] = d.name.map(main)
+        kp = krp[krp.field == k].papers
+        d["kr_equiv"] = [f"{1 + int((kp > n).sum())}위 / {len(kp)}명" for n in d.field]
+        d["kr_pct"] = [max(1, round(100 * (kp >= n).mean())) if len(kp) else None for n in d.field]
+        out[k] = d
+    c.close()
+    return cand, out
+
+
+from fp import topvenues  # noqa: E402
+
+cand, per_all = _compute(y0, y1, amin, amax, nt, int(min_p), topvenues.version())
 cand = cand[cand.type.isin(types)]
 if loc != "전체":
     cand = cand[cand["where"] == loc]
 if cand.empty:
     st.info("조건에 맞는 후보가 없습니다.")
     st.stop()
-
-bf = B.BF(start=y0, end=y1, next_tier=nt)
-pf = B.person_field_counts(c, list(cand.name), bf)
-rc = B.person_field_counts(c, list(cand.name), B.BF(start=max(y0, y1 - 1), end=y1, next_tier=nt))
-rc = rc.set_index(["name", "field"]).papers
-main = pf.sort_values("papers", ascending=False).drop_duplicates("name").set_index("name").field
-krp = B.kr_faculty_field_rank(c, bf)
-krp = krp[krp.field != "전체"]
-
-FK = [k for k in B.FIELDS]
 per_field = {}
-for k in FK:
-    d = pf[(pf.field == k) & (pf.papers >= min_p)][["name", "papers"]].rename(columns={"papers": "field"})
-    d = d.merge(cand, on="name")
-    if d.empty:
-        continue
-    d["recent"] = [int(rc.get((n, k), 0)) for n in d.name]
-    d["active"] = (d.acad_age.fillna(0).clip(lower=-4) + 5).clip(lower=1, upper=y1 - y0 + 1)
-    d["per_year"] = (d.field / d.active).round(2)
-    d["first"] = d.first_au
-    d["main"] = d.name.map(main)
-    kp = krp[krp.field == k].papers
-    d["kr_equiv"] = [f"{1 + int((kp > n).sum())}위 / {len(kp)}명" for n in d.field]
-    d["kr_pct"] = [max(1, round(100 * (kp >= n).mean())) if len(kp) else None for n in d.field]
-    per_field[k] = d.sort_values([sort, "field"], ascending=False).reset_index(drop=True)
+for k, d in per_all.items():
+    d = d[d.name.isin(cand.name)]
+    if len(d):
+        # deterministic order (name breaks ties) so a clicked row stays the same person
+        per_field[k] = d.sort_values([sort, "field", "name"], ascending=[False, False, True],
+                                     kind="mergesort").reset_index(drop=True)
 
 # ── overview ──
 ov = pd.DataFrame([{"field": k, "n": len(d), **{t: int((d.type == t).sum()) for t in types},
