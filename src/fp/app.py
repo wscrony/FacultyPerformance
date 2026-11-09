@@ -51,7 +51,11 @@ def area_options() -> pd.DataFrame:
 
 @st.cache_data
 def people_list(country: str | None) -> list[str]:
-    return [f"{n} — {a}" for n, a in metrics.people(con(), country)]
+    """Faculty ('name — affiliation') plus Korean pool members without a faculty listing ('name — -')."""
+    fac = [f"{n} — {a}" for n, a in metrics.people(con(), country)]
+    known = {x.split(" — ")[0] for x in fac}
+    pool = [r[0] for r in con().execute("SELECT person FROM pii.korean WHERE is_korean ORDER BY 1").fetchall()]
+    return fac + [f"{n} — -" for n in pool if n not in known]
 
 
 def _plot(fig: go.Figure, height: int = 420):
@@ -137,9 +141,11 @@ with tab_school:
 # ───────────────────────── 교수·후보자 검색 ─────────────────────────
 
 with tab_search:
+    scope_lbl = {"kr": "국내 교수", "korean": "한국인 연구자 전체 (해외 교수·포닥·학생 포함)", "world": "전 세계 교수"}
+    scope = st.radio("검색 범위", list(scope_lbl), format_func=scope_lbl.get, horizontal=True, key="scope")
     c1, c2, c3, c4 = st.columns([3, 2, 1, 1])
-    schools = sorted({a for _, a in metrics.people(con(), country)})
-    sch = c1.multiselect("학교", schools)
+    schools = sorted({a for _, a in metrics.people(con(), "kr" if scope == "kr" else None)})
+    sch = c1.multiselect("소속 (교수만 해당)", schools)
     age_rng = c2.slider("학문적 나이 (PhD 후 연수)", 0, 45, (0, 45))
     min_adj = c3.number_input("최소 adj", 0.0, 100.0, 0.0, 0.5)
     window = c4.number_input("코호트 ±", 1, 5, 2)
@@ -149,7 +155,7 @@ with tab_search:
         con(), G,
         age_min=age_rng[0] if age_rng[0] > 0 else None,
         age_max=age_rng[1] if age_rng[1] < 45 else None,
-        min_adj=min_adj, cohort_window=window, limit=None,
+        min_adj=min_adj, cohort_window=window, limit=None if scope == "kr" else 2000, scope=scope,
     )
     cdf = pd.DataFrame(rows, columns=cols)
     if known_only:
@@ -158,8 +164,8 @@ with tab_search:
     st.caption(
         f"{len(cdf)}명 · pctl = 국내 교수 중 같은 분야, 학문적 나이 ±{window}년 집단에서의 백분위 (기간 {yr[0]}–{yr[1]})"
     )
-    view = cdf[["name", "institution", "acad_age", "추정", "phd_year", "birth_year", "pubs", "adj",
-                "cohort_pctl", "cohort_n", "age_src"]]
+    view = cdf[["name", "institution", "role", "acad_age", "추정", "phd_year", "birth_year", "pubs", "adj",
+                "first_au", "last_au", "cohort_pctl", "cohort_n", "age_src"]]
     st.dataframe(
         view, hide_index=True, width="stretch", height=420,
         column_config={
@@ -167,15 +173,21 @@ with tab_search:
             "cohort_pctl": st.column_config.ProgressColumn("pctl", min_value=0, max_value=100, format="%d"),
             "phd_year": st.column_config.NumberColumn("PhD", format="%d"),
             "birth_year": st.column_config.NumberColumn("출생(추정 포함)", format="%d"),
+            "role": st.column_config.TextColumn("구분"),
+            "first_au": st.column_config.NumberColumn("1저자"),
+            "last_au": st.column_config.NumberColumn("마지막저자"),
         },
     )
+    if scope != "kr":
+        st.caption("교수가 아닌 사람의 현재 소속은 아직 알 수 없습니다(다음 단계에서 OpenAlex로 보강). "
+                   "한국인 여부는 이름·공저 기반 추정입니다.")
     chosen = st.multiselect(
         f"상세 보기 / 비교 대상 (결과 목록에서 선택, 최대 {MAX_COMPARE}명 · 첫 번째 사람의 프로필이 아래에 표시)",
         sorted(view["name"].tolist()), max_selections=MAX_COMPARE, key="pick",
     )
     b1, b2 = st.columns([1, 4])
     if b1.button("선택한 사람 비교 →", disabled=not chosen):
-        label = dict((n, f"{n} — {a}") for n, a in metrics.people(con(), None))
+        label = {o.split(" — ")[0]: o for o in people_list(None)}
         st.session_state.cmp_pick = [label[n] for n in chosen[:MAX_COMPARE] if n in label]
         st.toast("'교수 비교' 탭으로 이동하세요")
     b2.download_button(

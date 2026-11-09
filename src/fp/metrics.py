@@ -138,13 +138,25 @@ def school_area_matrix(con, f: Filter):
     return con.execute(q, params).df()
 
 
+def _has_author_pub(con) -> bool:
+    return con.execute(
+        "SELECT count(*) FROM duckdb_tables() WHERE table_name = 'author_pub'"
+    ).fetchone()[0] > 0 and con.execute("SELECT count(*) > 0 FROM (SELECT 1 FROM author_pub LIMIT 1)").fetchone()[0]
+
+
 def person_series(con, names: list[str], f: Filter):
-    """Per person per year per area (country filter ignored: a person's whole record)."""
-    g = Filter(**{**f.__dict__, "country": None, "schools": None})
-    where, params = g.where()
+    """Per person per year per area — whole record (author_pub when loaded, so non-faculty work too)."""
+    src = "author_pub" if _has_author_pub(con) else "cs_pub"
+    conds, params = ["p.year BETWEEN ? AND ?"], [f.start, f.end]
+    if not f.next_tier:
+        conds.append("NOT v.next_tier")
+    if f.areas:
+        conds.append("v.area IN (SELECT unnest(?))")
+        params.append(f.areas)
     q = f"""
     SELECT p.name, p.year, v.area_title AS area, sum(p.count) AS pubs, sum(p.adjustedcount) AS adj
-    {BASE} WHERE {where} AND p.name IN (SELECT unnest(?)) GROUP BY ALL ORDER BY p.year
+    FROM {src} p JOIN venue v ON v.venue = p.venue
+    WHERE {" AND ".join(conds)} AND p.name IN (SELECT unnest(?)) GROUP BY ALL ORDER BY p.year
     """
     return con.execute(q, params + [names]).df()
 

@@ -89,20 +89,35 @@ def best_per_degree(degs: Iterable[Degree]) -> dict[str, Degree]:
 
 
 def targets(con, scope: str, force: bool) -> list[tuple[str, str]]:
-    """(person, orcid) pairs to fetch. scope: kr = faculty at KR institutions."""
-    where = "i.country = 'kr'" if scope == "kr" else "TRUE"
-    rows = con.execute(
-        f"""SELECT DISTINCT f.name, trim(f.orcid) FROM cs_faculty f
+    """(person, orcid) pairs to fetch.
+
+    scope kr     = faculty at KR institutions (ORCID from csrankings)
+    scope korean = Korean candidate pool incl. non-faculty (ORCID from csrankings, else DBLP's author attribute)
+    scope world  = all csrankings faculty
+    """
+    recent = f"""SELECT person FROM pii.fetch_log WHERE source = 'orcid'
+                 AND fetched_at > now() - INTERVAL {REFRESH_DAYS} DAY"""
+    if scope == "korean":
+        have_ao = con.execute("SELECT count(*) FROM duckdb_tables() WHERE table_name = 'author_orcid'").fetchone()[0]
+        ao = "author_orcid" if have_ao else "(SELECT NULL::VARCHAR AS name, NULL::VARCHAR AS orcid WHERE false)"
+        q = f"""
+        WITH people AS (
+            SELECT f.name FROM cs_faculty f JOIN institution i ON i.institution = f.affiliation WHERE i.country = 'kr'
+            UNION SELECT person FROM pii.korean WHERE is_korean)
+        SELECT p.name, coalesce(nullif(trim(any_value(f.orcid)), ''), any_value(a.orcid))
+        FROM people p LEFT JOIN cs_faculty f ON f.name = p.name LEFT JOIN {ao} a ON a.name = p.name
+        WHERE p.name NOT IN (SELECT person FROM pii.forget) AND (? OR p.name NOT IN ({recent}))
+        GROUP BY p.name ORDER BY 1"""
+    else:
+        where = "i.country = 'kr'" if scope == "kr" else "TRUE"
+        q = f"""SELECT DISTINCT f.name, trim(f.orcid) FROM cs_faculty f
             JOIN institution i ON i.institution = f.affiliation
-            WHERE {where}
-              AND f.name NOT IN (SELECT person FROM pii.forget)
-              AND (? OR f.name NOT IN (
-                    SELECT person FROM pii.fetch_log WHERE source = 'orcid'
-                    AND fetched_at > now() - INTERVAL {REFRESH_DAYS} DAY))
-            ORDER BY 1""",
-        [force],
-    ).fetchall()
-    return rows
+            WHERE {where} AND f.name NOT IN (SELECT person FROM pii.forget)
+              AND (? OR f.name NOT IN ({recent}))
+            ORDER BY 1"""
+    rows = con.execute(q, [force]).fetchall()
+    # people with no ORCID at all are skipped silently (nothing to fetch)
+    return [(n, o or "") for n, o in rows if scope != "korean" or o]
 
 
 def update(
