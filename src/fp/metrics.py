@@ -1,5 +1,5 @@
 """Aggregations over cs_pub. School score replicates CSrankings computeStats():
-score(dept) = (Π_{selected parent areas} (adj_count(area, dept) + 1)) ^ (1 / #selected areas).
+score(dept) = (Π_{selected parent areas} (paper_count(area, dept) + 1)) ^ (1 / #selected areas).
 """
 
 from __future__ import annotations
@@ -52,30 +52,35 @@ def all_areas(con) -> list[tuple[str, str, str]]:
 
 
 def school_ranking(con, f: Filter):
-    """Rows: institution, score, faculty, adj_total, {area: adj}."""
+    """Rows: institution, score, faculty, pubs_total, {area: pubs}.
+
+    score = geometric mean over selected areas of (paper count + 1) — CSrankings' formula with raw paper counts
+    instead of adjusted counts (user decision 2026-11-09). A paper co-authored by two faculty of the same school
+    counts for each of them.
+    """
     where, params = f.where()
     selected = f.areas or [a for a, _, _ in all_areas(con)]
     n = len(selected)
     q = f"""
-    WITH ad AS (
-        SELECT p.dept, v.area, sum(p.adjustedcount) AS adj, count(DISTINCT p.name) AS fac
+    WITH agg AS (
+        SELECT p.dept, v.area, sum(p.count) AS n, count(DISTINCT p.name) AS fac
         {BASE} WHERE {where} GROUP BY ALL
     ),
     grid AS (
-        SELECT d.dept, a.area, coalesce(ad.adj, 0) AS adj
-        FROM (SELECT DISTINCT dept FROM ad) d
+        SELECT d.dept, a.area, coalesce(agg.n, 0) AS n
+        FROM (SELECT DISTINCT dept FROM agg) d
         CROSS JOIN (SELECT unnest(?) AS area) a
-        LEFT JOIN ad USING (dept, area)
+        LEFT JOIN agg USING (dept, area)
     ),
     fac AS (
         SELECT p.dept, count(DISTINCT p.name) AS faculty {BASE} WHERE {where} GROUP BY ALL
     )
     SELECT g.dept AS institution,
-           exp(sum(ln(g.adj + 1)) / {n}) AS score,
+           exp(sum(ln(g.n + 1)) / {n}) AS score,
            any_value(fac.faculty) AS faculty,
-           sum(g.adj) AS adj_total,
-           map_from_entries(list((g.area, round(g.adj, 1)) ORDER BY g.adj DESC)
-                            FILTER (WHERE g.adj > 0)) AS by_area
+           sum(g.n)::BIGINT AS pubs_total,
+           map_from_entries(list((g.area, g.n::BIGINT) ORDER BY g.n DESC)
+                            FILTER (WHERE g.n > 0)) AS by_area
     FROM grid g JOIN fac USING (dept)
     GROUP BY g.dept
     ORDER BY score DESC, institution
@@ -84,7 +89,7 @@ def school_ranking(con, f: Filter):
         "institution",
         "score",
         "faculty",
-        "adj_total",
+        "pubs_total",
         "by_area",
     ]
 
@@ -94,17 +99,17 @@ def faculty_table(con, f: Filter, limit: int | None = None):
     where, params = f.where()
     q = f"""
     WITH per AS (
-        SELECT p.name, p.dept, v.area_title, sum(p.count) AS cnt, sum(p.adjustedcount) AS adj
+        SELECT p.name, p.dept, v.area_title, sum(p.count) AS cnt
         {BASE} WHERE {where} GROUP BY ALL
     )
-    SELECT name, dept AS institution, sum(cnt) AS pubs, round(sum(adj), 2) AS adj,
-           arg_max(area_title, adj) AS top_area,
+    SELECT name, dept AS institution, sum(cnt) AS pubs,
+           arg_max(area_title, cnt) AS top_area,
            map_from_entries(list((area_title, cnt) ORDER BY cnt DESC)) AS by_area
     FROM per GROUP BY name, dept
-    ORDER BY adj DESC, name
+    ORDER BY pubs DESC, name
     {f"LIMIT {int(limit)}" if limit else ""}
     """
-    return con.execute(q, params).fetchall(), ["name", "institution", "pubs", "adj", "top_area", "by_area"]
+    return con.execute(q, params).fetchall(), ["name", "institution", "pubs", "top_area", "by_area"]
 
 
 def person_profile(con, name: str, start: int = 1970, end: int = 2100, next_tier: bool = True):
@@ -112,11 +117,11 @@ def person_profile(con, name: str, start: int = 1970, end: int = 2100, next_tier
     f = Filter(start=start, end=end, next_tier=next_tier, country=None)
     where, params = f.where()
     q = f"""
-    SELECT v.area_title, p.venue, p.year, sum(p.count) AS cnt, round(sum(p.adjustedcount), 2) AS adj
+    SELECT v.area_title, p.venue, p.year, sum(p.count) AS cnt
     {BASE} WHERE {where} AND p.name = ?
     GROUP BY ALL ORDER BY p.year, v.area_title, p.venue
     """
-    return con.execute(q, params + [name]).fetchall(), ["area", "venue", "year", "pubs", "adj"]
+    return con.execute(q, params + [name]).fetchall(), ["area", "venue", "year", "pubs"]
 
 
 def find_people(con, pattern: str, limit: int = 20) -> list[tuple[str, str]]:
@@ -128,11 +133,10 @@ def find_people(con, pattern: str, limit: int = 20) -> list[tuple[str, str]]:
 
 
 def school_area_matrix(con, f: Filter):
-    """Long form: institution, area_title, adj (within filter)."""
+    """Long form: institution, area_title, pubs (within filter)."""
     where, params = f.where()
     q = f"""
-    SELECT p.dept AS institution, v.area_title AS area, round(sum(p.adjustedcount), 2) AS adj,
-           sum(p.count) AS pubs
+    SELECT p.dept AS institution, v.area_title AS area, sum(p.count) AS pubs
     {BASE} WHERE {where} GROUP BY ALL
     """
     return con.execute(q, params).df()

@@ -118,7 +118,7 @@ def schools(
     start: int = Start, end: int = End, area: Optional[str] = Area, next_tier: bool = NextTier,
     country: str = Country, csv_out: Optional[str] = CsvOut,
 ):
-    """Rank institutions (CSrankings geometric-mean score)."""
+    """Rank institutions: geometric mean over areas of (paper count + 1)."""
     con = db.connect(read_only=True)
     rows, cols = metrics.school_ranking(con, _filter(start, end, area, next_tier, country, None))
     _show(rows, cols, f"Schools {country} {start}-{end} {area or 'all areas'}", csv_out)
@@ -130,7 +130,7 @@ def faculty(
     country: str = Country, school: Optional[str] = School, limit: int = typer.Option(50),
     csv_out: Optional[str] = CsvOut,
 ):
-    """Rank faculty by adjusted count."""
+    """Rank faculty by paper count."""
     con = db.connect(read_only=True)
     rows, cols = metrics.faculty_table(con, _filter(start, end, area, next_tier, country, school), limit)
     _show(rows, cols, f"Faculty {school or country} {start}-{end} {area or 'all areas'}", csv_out)
@@ -363,9 +363,9 @@ def candidates(
     school: Optional[str] = School,
     age_min: Optional[int] = typer.Option(None, help="min academic age (years since PhD)"),
     age_max: Optional[int] = typer.Option(None, help="max academic age"),
-    min_adj: float = typer.Option(0.0, help="min adjusted count in the year range"),
+    min_pubs: int = typer.Option(0, help="min papers in the year range"),
     window: int = typer.Option(2, help="cohort = academic age ± window"),
-    sort: str = typer.Option("adj", help="rank by: adj (CSrankings) | pubs | cites | pctl"),
+    sort: str = typer.Option("pubs", help="rank by: pubs | cites | pctl"),
     limit: int = typer.Option(50), csv_out: Optional[str] = CsvOut,
     include_pii: bool = typer.Option(False, "--include-pii", help="keep age/degree columns in CSV"),
 ):
@@ -375,7 +375,7 @@ def candidates(
     con = pii.connect(read_only=True)
     rows, cols = age.candidates(
         con, _filter(start, end, area, next_tier, None, school),
-        age_min=age_min, age_max=age_max, min_adj=min_adj, cohort_window=window, limit=limit, scope=scope,
+        age_min=age_min, age_max=age_max, min_pubs=min_pubs, cohort_window=window, limit=limit, scope=scope,
         sort=sort,
     )
     if csv_out and not include_pii:
@@ -390,7 +390,7 @@ def candidates(
 def _compact_age(rows, cols):
     """Terminal view: fold *_src columns into a '*' marker on estimated values."""
     ix = {c: i for i, c in enumerate(cols)}
-    out_cols = ["name", "institution", "role", "age", "acad_age", "pubs", "adj", "1st/last", "cites", "pctl", "n"]
+    out_cols = ["name", "institution", "role", "age", "acad_age", "pubs", "1st/last", "cites", "pctl", "n"]
     out = []
     for r in rows:
         est_age = r[ix["age_src"]] is None or r[ix["age_src"]].startswith("est")
@@ -398,7 +398,7 @@ def _compact_age(rows, cols):
         mark = lambda v, est: "-" if v is None else f"{v}{'*' if est else ''}"
         out.append([
             r[ix["name"]], r[ix["institution"]], r[ix["role"]], mark(r[ix["age"]], est_birth),
-            mark(r[ix["acad_age"]], est_age), r[ix["pubs"]], r[ix["adj"]],
+            mark(r[ix["acad_age"]], est_age), r[ix["pubs"]],
             f"{r[ix['first_au']]}/{r[ix['last_au']]}",
             "-" if r[ix["cites"]] is None else r[ix["cites"]],
             "-" if r[ix["cohort_pctl"]] is None else int(r[ix["cohort_pctl"]]), r[ix["cohort_n"]],

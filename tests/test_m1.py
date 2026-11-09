@@ -78,12 +78,12 @@ def con(tmp_path):
     return c
 
 
-def test_school_score_matches_csrankings_formula(con):
+def test_school_score_geomean_of_paper_counts(con):
     rows, cols = metrics.school_ranking(con, metrics.Filter(start=2016, end=2026))
     got = {r[0]: r for r in rows}
     assert set(got) == {"A Univ", "B Univ"}
-    # A: (0.5+1)*(1+1) over 2 areas; B: (2+1)*(0+1)
-    assert got["A Univ"][1] == pytest.approx(math.sqrt(1.5 * 2.0))
+    # paper counts (not adjusted): A: (1+1)*(1+1) over 2 areas; B: (2+1)*(0+1)
+    assert got["A Univ"][1] == pytest.approx(math.sqrt(2.0 * 2.0))
     assert got["B Univ"][1] == pytest.approx(math.sqrt(3.0 * 1.0))
     assert got["A Univ"][2] == 1
 
@@ -92,9 +92,9 @@ def test_next_tier_and_area_filter(con):
     f = metrics.Filter(start=2016, end=2026, areas=["mod"], next_tier=True)
     rows, _ = metrics.school_ranking(con, f)
     got = {r[0]: r[1] for r in rows}
-    assert got["A Univ"] == pytest.approx(0.5 + 1.0 + 1.0)  # single area → adj+1
+    assert got["A Univ"] == pytest.approx(1 + 1 + 1)  # single area → papers + 1
 
 
 def test_faculty_table_world(con):
     rows, _ = metrics.faculty_table(con, metrics.Filter(start=2016, end=2026, country=None))
-    assert [r[0] for r in rows] == ["Carl", "Bob", "Alice"]
+    assert [r[0] for r in rows] == ["Carl", "Alice", "Bob"]  # 5, 2, 2 papers; ties by name

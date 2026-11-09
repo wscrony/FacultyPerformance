@@ -141,13 +141,12 @@ def create_views(con, this_year: int | None = None) -> None:
 
 
 SORTS = {
-    "adj": "adjusted count (논문 1편 = 1/저자수, CSrankings 기준)",
     "pubs": "논문 수",
     "cites": "피인용 (선택 분야·기간, DOI 있는 대상 학회 논문)",
     "pctl": "같은 나이대 국내 교수 대비 백분위",
 }
 
-SORT_EXPR = {"adj": "s.adj", "pubs": "s.pubs", "cites": "wc.cites", "pctl": "cohort_pctl"}
+SORT_EXPR = {"pubs": "s.pubs", "cites": "wc.cites", "pctl": "cohort_pctl"}
 
 SCOPES = {
     "kr": "KR faculty",
@@ -176,17 +175,17 @@ def candidates(
     f: metrics.Filter,
     age_min: int | None = None,
     age_max: int | None = None,
-    min_adj: float = 0.0,
+    min_pubs: int = 0,
     cohort_window: int = 2,
     limit: int | None = 100,
     scope: str = "kr",
-    sort: str = "adj",
+    sort: str = "pubs",
 ):
     """People with output in the filter window, academic age, and percentile vs KR faculty of similar age.
 
     Counts come from author_pub (all authors, incl. first/last-author counts) when loaded, else cs_pub.
     Percentile population: KR faculty with >=1 paper (any year) in the selected areas, academic age within
-    ±cohort_window, measured on adjusted count in the same window.
+    ±cohort_window, measured on paper count in the same window.
     """
     if sort not in SORTS:
         raise ValueError(f"sort must be one of {list(SORTS)}")
@@ -216,27 +215,27 @@ def candidates(
     q = f"""
     WITH wcite AS ({wcite_sql}),
     sel AS (
-        SELECT p.name, sum(p.count) AS pubs, sum(p.adjustedcount) AS adj,
+        SELECT p.name, sum(p.count) AS pubs,
                sum(p.first_count) AS first_au, sum(p.last_count) AS last_au
         FROM {src} p JOIN venue v ON v.venue = p.venue WHERE {win} GROUP BY 1
     ),
     kr AS (SELECT person FROM person_role WHERE role = 'KR faculty'),
     pop AS (
-        SELECT k.person AS name, coalesce(w.adj, 0) AS adj, a.academic_age
+        SELECT k.person AS name, coalesce(w.pubs, 0) AS pubs, a.academic_age
         FROM kr k
         JOIN (SELECT DISTINCT p.name FROM {src} p JOIN venue v ON v.venue = p.venue WHERE {ever}) e ON e.name = k.person
-        LEFT JOIN (SELECT p.name, sum(p.adjustedcount) AS adj FROM {src} p JOIN venue v ON v.venue = p.venue
+        LEFT JOIN (SELECT p.name, sum(p.count) AS pubs FROM {src} p JOIN venue v ON v.venue = p.venue
                    WHERE {win} GROUP BY 1) w ON w.name = k.person
         JOIN person_age a ON a.person = k.person
         WHERE a.academic_age IS NOT NULL
     )
-    SELECT * EXCLUDE (sort_key), row_number() OVER (ORDER BY sort_key DESC NULLS LAST, adj DESC, name) AS rank
+    SELECT * EXCLUDE (sort_key), row_number() OVER (ORDER BY sort_key DESC NULLS LAST, pubs DESC, name) AS rank
     FROM (
     SELECT s.name, coalesce(r.affiliation, '-') AS institution, r.role, r.affil_year,
            a.academic_age, a.phd_year, a.age_source, a.birth_year, a.birth_source,
            {date.today().year} - a.birth_year AS age,
-           s.pubs, round(s.adj, 2) AS adj, s.first_au, s.last_au, wc.cites, pc.cites AS cites_all, pc.cited_papers, pc.papers AS top_papers,
-           (SELECT round(100.0 * avg(CASE WHEN q.adj < s.adj THEN 1 WHEN q.adj = s.adj THEN 0.5 ELSE 0 END), 0)
+           s.pubs, s.first_au, s.last_au, wc.cites, pc.cites AS cites_all, pc.cited_papers, pc.papers AS top_papers,
+           (SELECT round(100.0 * avg(CASE WHEN q.pubs < s.pubs THEN 1 WHEN q.pubs = s.pubs THEN 0.5 ELSE 0 END), 0)
               FROM pop q WHERE abs(q.academic_age - a.academic_age) <= {int(cohort_window)}) AS cohort_pctl,
            (SELECT count(*) FROM pop q WHERE abs(q.academic_age - a.academic_age) <= {int(cohort_window)}) AS cohort_n,
            {SORT_EXPR[sort]} AS sort_key
@@ -246,7 +245,7 @@ def candidates(
     LEFT JOIN person_cites pc ON pc.person = s.name
     LEFT JOIN wcite wc ON wc.person = s.name
     WHERE {scope_sql} {school_sql}
-      AND s.adj >= ?
+      AND s.pubs >= ?
       AND (? IS NULL OR a.academic_age >= ?)
       AND (? IS NULL OR a.academic_age <= ?)
     )
@@ -254,11 +253,11 @@ def candidates(
     {f"LIMIT {int(limit)}" if limit else ""}
     """
     rows = con.execute(
-        q, cparams + wparams + eparams + wparams + sparams + [min_adj, age_min, age_min, age_max, age_max]
+        q, cparams + wparams + eparams + wparams + sparams + [min_pubs, age_min, age_min, age_max, age_max]
     ).fetchall()
     cols = [
         "name", "institution", "role", "affil_year", "acad_age", "phd_year", "age_src", "birth_year", "birth_src",
-        "age", "pubs", "adj", "first_au", "last_au", "cites", "cites_all", "cited_papers", "top_papers", "cohort_pctl", "cohort_n",
+        "age", "pubs", "first_au", "last_au", "cites", "cites_all", "cited_papers", "top_papers", "cohort_pctl", "cohort_n",
         "rank",
     ]
     return rows, cols

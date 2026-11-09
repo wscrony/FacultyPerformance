@@ -17,7 +17,7 @@ CREATE TABLE IF NOT EXISTS pii.run (
     run_at  TIMESTAMP,
     steps   JSON
 );
-CREATE TABLE IF NOT EXISTS pii.run_person (
+CREATE TABLE IF NOT EXISTS pii.run_person (  -- v2: no adjusted counts
     run_id      INTEGER,
     person      VARCHAR,
     role        VARCHAR,
@@ -26,9 +26,9 @@ CREATE TABLE IF NOT EXISTS pii.run_person (
     acad_age    INTEGER,
     age_source  VARCHAR,
     pubs_5y     INTEGER,
-    adj_5y      DOUBLE,
     cites       BIGINT
 );
+ALTER TABLE pii.run_person DROP COLUMN IF EXISTS adj_5y;  -- migration from v1
 """
 
 
@@ -45,11 +45,11 @@ def snapshot(con, steps: dict | None = None) -> int:
         f"""
         INSERT INTO pii.run_person
         SELECT ?, r.person, r.role, r.affiliation, r.is_korean, a.academic_age, a.age_source,
-               coalesce(o.pubs, 0), coalesce(o.adj, 0), pc.cites
+               coalesce(o.pubs, 0), pc.cites
         FROM person_role r
         LEFT JOIN person_age a ON a.person = r.person
         LEFT JOIN person_cites pc ON pc.person = r.person
-        LEFT JOIN (SELECT p.name, sum(p.count) AS pubs, sum(p.adjustedcount) AS adj
+        LEFT JOIN (SELECT p.name, sum(p.count) AS pubs
                    FROM {src} p JOIN venue v ON v.venue = p.venue
                    WHERE p.year >= ? AND NOT v.next_tier GROUP BY 1) o ON o.name = r.person
         WHERE r.is_korean OR r.role = 'KR faculty'
@@ -78,13 +78,13 @@ def diff(con, new: int | None = None, old: int | None = None) -> dict[str, list]
                              "AND n.role IS DISTINCT FROM 'KR faculty' ORDER BY 2, 1"),
         "moved": q(f"SELECT person, o.affiliation, n.affiliation, n.role {J} WHERE o.affiliation IS NOT NULL "
                    "AND n.affiliation IS NOT NULL AND o.affiliation <> n.affiliation ORDER BY 1"),
-        "new_candidates": q(f"SELECT person, n.affiliation, n.acad_age, round(n.adj_5y, 2) {J} "
-                            "WHERE o.person IS NULL AND n.is_korean ORDER BY n.adj_5y DESC LIMIT 50"),
+        "new_candidates": q(f"SELECT person, n.affiliation, n.acad_age, n.pubs_5y {J} "
+                            "WHERE o.person IS NULL AND n.is_korean ORDER BY n.pubs_5y DESC, person LIMIT 50"),
         "age_confirmed": q(f"SELECT person, n.acad_age, n.age_source {J} WHERE n.age_source IN "
                            "('orcid','homepage','manual') AND o.age_source NOT IN ('orcid','homepage','manual') "
                            "ORDER BY 1"),
-        "output_up": q(f"SELECT person, n.affiliation, round(o.adj_5y, 2), round(n.adj_5y, 2) {J} "
-                       "WHERE n.adj_5y - o.adj_5y >= 1.0 ORDER BY n.adj_5y - o.adj_5y DESC LIMIT 30"),
+        "output_up": q(f"SELECT person, n.affiliation, o.pubs_5y, n.pubs_5y {J} "
+                       "WHERE n.pubs_5y - o.pubs_5y >= 3 ORDER BY n.pubs_5y - o.pubs_5y DESC, person LIMIT 30"),
     }
 
 
@@ -92,9 +92,9 @@ TITLES = {
     "kr_faculty_joined": ("국내 교수 신규 (CSrankings)", ["이름", "소속"]),
     "kr_faculty_left": ("국내 교수 명단에서 빠짐", ["이름", "이전 소속", "현재 소속"]),
     "moved": ("소속 변경", ["이름", "이전", "현재", "구분"]),
-    "new_candidates": ("새 한국인 후보자 (최근 5년 adj 순 상위 50)", ["이름", "소속", "학문적 나이", "adj 5y"]),
+    "new_candidates": ("새 한국인 후보자 (최근 5년 논문 수 상위 50)", ["이름", "소속", "학문적 나이", "논문 5y"]),
     "age_confirmed": ("나이 근거 새로 확인", ["이름", "학문적 나이", "출처"]),
-    "output_up": ("최근 5년 adj 1.0 이상 증가", ["이름", "소속", "이전", "현재"]),
+    "output_up": ("최근 5년 논문 3편 이상 증가", ["이름", "소속", "이전", "현재"]),
 }
 
 

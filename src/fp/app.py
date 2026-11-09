@@ -87,7 +87,7 @@ with st.sidebar:
     sel_areas = picked or (pool.area.tolist() if cats else None)
     next_tier = st.toggle("next-tier 학회 포함", value=False, help="CSrankings 기본값은 제외")
     region = st.radio("국가", ["kr", "world"], horizontal=True)
-    st.caption("점수 = CSrankings 방식(분야별 adjusted count+1의 기하평균).")
+    st.caption("학교 점수 = 분야별 (논문 수+1)의 기하평균. 같은 학교 교수 공저 논문은 각자 1편씩 셉니다.")
 
 country = None if region == "world" else region
 F = metrics.Filter(start=yr[0], end=yr[1], areas=sel_areas, next_tier=next_tier, country=country)
@@ -103,33 +103,33 @@ with tab_school:
     if df.empty:
         st.info("조건에 맞는 데이터가 없습니다.")
     else:
-        df["adj_per_faculty"] = (df.adj_total / df.faculty).round(2)
+        df["pubs_per_faculty"] = (df.pubs_total / df.faculty).round(1)
         top = df.head(40 if region == "world" else 20)
         c1, c2 = st.container(), st.container()
         with c1:
             st.subheader("순위")
             st.dataframe(
-                top[["institution", "score", "faculty", "adj_total", "adj_per_faculty"]].round(2),
+                top[["institution", "score", "faculty", "pubs_total", "pubs_per_faculty"]].round(2),
                 hide_index=False, width="stretch", height=min(560, 36 * len(top) + 40),
             )
         with c2:
-            st.subheader("학교 × 분야 (adjusted count)")
+            st.subheader("학교 × 분야 (논문 수)")
             m = metrics.school_area_matrix(con(), F)
             m = m[m.institution.isin(top.institution.head(20))]
-            piv = m.pivot_table(index="institution", columns="area", values="adj", aggfunc="sum").fillna(0)
+            piv = m.pivot_table(index="institution", columns="area", values="pubs", aggfunc="sum").fillna(0)
             piv = piv.loc[[i for i in top.institution if i in piv.index]]
             piv = piv[piv.sum().sort_values(ascending=False).index]
             norm = st.radio("값", ["절대값", "교수 1인당", "학교 내 비중(%)"], horizontal=True,
                             help="ML/Vision이 커서 다른 분야가 묻힐 때 비중 보기가 유용합니다")
-            z, unit = piv, "adj"
+            z, unit = piv, "편"
             if norm == "교수 1인당":
-                z, unit = piv.div(top.set_index("institution").faculty.reindex(piv.index), axis=0), "adj/교수"
+                z, unit = piv.div(top.set_index("institution").faculty.reindex(piv.index), axis=0), "편/교수"
             elif norm == "학교 내 비중(%)":
                 z, unit = piv.div(piv.sum(axis=1), axis=0) * 100, "%"
             fig = go.Figure(go.Heatmap(
                 z=z.values, x=z.columns, y=z.index, colorscale=SEQ_BLUE, xgap=2, ygap=2,
                 customdata=piv.values,
-                hovertemplate="%{y}<br>%{x}: %{z:.2f} " + unit + " (adj %{customdata:.1f})<extra></extra>",
+                hovertemplate="%{y}<br>%{x}: %{z:.1f} " + unit + " (논문 %{customdata:.0f}편)<extra></extra>",
                 colorbar=dict(title=unit),
             ))
             fig.update_yaxes(autorange="reversed")
@@ -147,7 +147,7 @@ with tab_search:
     schools = sorted({a for _, a in metrics.people(con(), "kr" if scope == "kr" else None)})
     sch = c1.multiselect("소속", schools, help="명단 외 인물은 OpenAlex 기관명을 CSrankings 학교명으로 매핑해 필터합니다")
     age_rng = c2.slider("학문적 나이 (PhD 후 연수)", 0, 45, (0, 45))
-    min_adj = c3.number_input("최소 adj", 0.0, 100.0, 0.0, 0.5)
+    min_pubs = c3.number_input("최소 논문 수", 0, 200, 0, 1)
     window = c4.number_input("코호트 ±", 1, 5, 2)
     t1, t2 = st.columns([2, 3])
     sort = t1.selectbox("순위 기준", list(age.SORTS), format_func=age.SORTS.get, key="sort")
@@ -157,7 +157,7 @@ with tab_search:
         con(), G,
         age_min=age_rng[0] if age_rng[0] > 0 else None,
         age_max=age_rng[1] if age_rng[1] < 45 else None,
-        min_adj=min_adj, cohort_window=window, limit=None if scope == "kr" else 2000, scope=scope, sort=sort,
+        min_pubs=min_pubs, cohort_window=window, limit=None if scope == "kr" else 2000, scope=scope, sort=sort,
     )
     cdf = pd.DataFrame(rows, columns=cols)
     if known_only:
@@ -169,7 +169,7 @@ with tab_search:
         f"{len(cdf)}명 · pctl = 국내 교수 중 같은 분야, 학문적 나이 ±{window}년 집단에서의 백분위 (기간 {yr[0]}–{yr[1]})"
     )
     view = cdf[["rank", "name", "institution", "role", "affil_year", "age", "나이추정", "acad_age", "추정", "phd_year",
-                "birth_year", "pubs", "adj",
+                "birth_year", "pubs",
                 "first_au", "last_au", "cites", "cites_all", "cohort_pctl", "cohort_n", "age_src"]]
     st.dataframe(
         view, hide_index=True, width="stretch", height=420,
@@ -267,7 +267,6 @@ with tab_cmp:
             "학문적 나이": [THIS_YEAR - ages.phd_year_eff.get(n) if n in ages.index and pd.notna(ages.phd_year_eff.get(n)) else None for n in names],
             "나이 출처": [ages.age_source.get(n) if n in ages.index else None for n in names],
             f"논문 {yr[0]}–{yr[1]}": [int(s[s["name"] == n].pubs.sum()) for n in names],
-            "adj": [round(s[s["name"] == n].adj.sum(), 2) for n in names],
         })
         st.dataframe(info, hide_index=True, width="stretch")
 
@@ -287,15 +286,15 @@ with tab_cmp:
                                                                    next_tier=next_tier))
         fig = go.Figure()
         for n in names:
-            d = full[full["name"] == n].groupby("year").adj.sum().sort_index().cumsum()
+            d = full[full["name"] == n].groupby("year").pubs.sum().sort_index().cumsum()
             if d.empty:
                 continue
             base = ages.phd_year_eff.get(n) if n in ages.index else None
             x = d.index - base if base is not None and pd.notna(base) else d.index
             fig.add_scatter(x=x, y=d.values, name=n, mode="lines+markers",
                             line=dict(color=color[n], width=2), marker=dict(size=8),
-                            hovertemplate=f"{n}<br>PhD 후 %{{x}}년: 누적 %{{y:.1f}}<extra></extra>")
-        fig.update_layout(title="누적 adjusted count — PhD 취득 연도 기준 정렬 (x=PhD 후 연차, 추정 포함)",
+                            hovertemplate=f"{n}<br>PhD 후 %{{x}}년: 누적 %{{y:.0f}}편<extra></extra>")
+        fig.update_layout(title="누적 논문 수 — PhD 취득 연도 기준 정렬 (x=PhD 후 연차, 추정 포함)",
                           hovermode="x unified")
         fig.update_xaxes(title="PhD 후 연차", zeroline=True, zerolinecolor="rgba(128,128,128,0.4)")
         _plot(fig, height=380)
