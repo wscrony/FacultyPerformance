@@ -238,8 +238,11 @@ with tab_search:
             "rank": st.column_config.NumberColumn("순위", help="선택한 순위 기준으로 매긴 검색 결과 내 순위"),
             "age": st.column_config.NumberColumn(
                 "나이", help="올해 − 출생연도. 출생연도가 없으면 PhD−30, 학사−23, 첫 top 논문−28로 추정 (±3년 정도 오차)"),
-            "나이추정": st.column_config.CheckboxColumn("나이 추정값"),
-            "acad_age": st.column_config.NumberColumn("학문적 나이"),
+            "나이추정": ui.AGE_COLS["age_est"],
+            "acad_age": st.column_config.NumberColumn("학문적 나이", help="올해 − 박사 연도 (박사 전이면 음수)"),
+            "추정": st.column_config.CheckboxColumn(
+                "학문적 나이 추정값", help="체크 = 박사 연도를 확인하지 못한 추정값 (LLM 지식 또는 첫 top 논문+2년). "
+                                     "자세한 근거는 '학문적 나이 출처' 열 제목에 마우스를 올려 보세요"),
             "cohort_pctl": st.column_config.ProgressColumn("pctl", min_value=0, max_value=100, format="%d"),
             "phd_year": st.column_config.NumberColumn("PhD", format="%d"),
             "birth_year": st.column_config.NumberColumn("출생(추정 포함)", format="%d"),
@@ -247,10 +250,10 @@ with tab_search:
             "affil_year": st.column_config.NumberColumn("소속 연도", format="%d",
                                                         help="비교수: 소속을 확인한 가장 최근 논문의 연도 (OpenAlex)"),
             "first_au": st.column_config.NumberColumn("1저자"),
-            "cites_all": st.column_config.NumberColumn("피인용(경력 전체)", help="모든 분야·연도의 대상 학회 DOI 논문 합"),
+            "cites_all": st.column_config.NumberColumn("피인용(경력 전체)", help="모든 분야·연도의 대상 학회 논문 피인용 합"),
             "cites": st.column_config.NumberColumn(
-                "피인용", help="선택한 분야·기간의 대상 학회 논문 중 DOI가 있는 논문의 OpenAlex 피인용 합. "
-                             "NeurIPS·ICML·ICLR·USENIX 등 DOI 없는 학회는 빠져 있어 ML·시스템 분야는 과소집계"),
+                "피인용", help="선택한 분야·기간의 대상 학회 논문의 OpenAlex 피인용 합. DOI로 매칭하고, DOI가 없는 "
+                             "논문(NeurIPS·ICLR 등)은 제목 일치로 매칭. 아직 매칭 못 한 논문은 빠져 있음"),
             "last_au": st.column_config.NumberColumn("마지막저자"),
         },
     )

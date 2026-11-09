@@ -223,7 +223,9 @@ def add_age(df: pd.DataFrame, name_col: str = "name", after: str | None = None) 
 AGE_COLS = {
     "age": st.column_config.NumberColumn("나이 (추정)", help="올해 − 출생연도. 출생연도를 모르면 PhD−30 / 학사−23 / "
                                                            "첫 top 논문−28로 추정"),
-    "age_est": st.column_config.CheckboxColumn("나이 추정값", help="체크 = 추정값 (확인된 출생연도 아님)"),
+    "age_est": st.column_config.CheckboxColumn(
+        "나이 추정값", help="체크 = 출생연도를 직접 확인하지 못해 추정한 나이. 박사 연도−30 → 학사 연도−23 → "
+                          "첫 top 논문 연도−28 순으로 씀 (±3년 정도 오차)"),
 }
 
 
@@ -251,11 +253,37 @@ def link_style(df: pd.DataFrame, link_col: str = "name", selected: int | None = 
     return sty
 
 
+AGE_SRC_LABEL = {
+    "manual": "수동 입력 (확인)", "orcid": "ORCID (확인)", "homepage": "홈페이지 (확인)",
+    "est:llm": "LLM 지식 (추정)", "est:first_top": "첫 top 논문 (추정)",
+}
+AGE_SRC_HELP = (
+    "학문적 나이(박사 후 연수)의 근거가 된 박사 연도의 출처.\n\n"
+    "· ORCID (확인): 본인 ORCID 학력에 적힌 박사 연도\n\n"
+    "· 홈페이지 (확인): 본인 홈페이지/CV에서 읽은 박사 연도\n\n"
+    "· 수동 입력 (확인): 직접 입력한 값\n\n"
+    "· LLM 지식 (추정): 위 출처가 없어 Claude(Opus)가 알고 있는 박사 연도로 채운 값 (확신도 0.7 이상, 논문 기록과 모순되면 버림)\n\n"
+    "· 첫 top 논문 (추정): 박사 연도를 몰라 첫 top 학회 논문 연도 + 2년으로 추정 (확인된 608명 기준 오차 중앙값 2년)\n\n"
+    "· 없음: top 학회 논문도 없어 추정 불가"
+)
+_AGE_SRC_COLS = ("age_source", "age_src", "나이 출처")
+
+
+def _explain_age_source(df: pd.DataFrame, cc: dict) -> pd.DataFrame:
+    """Readable labels + hover help for the academic-age source column, wherever a table shows one."""
+    for col in _AGE_SRC_COLS:
+        if col in df.columns:
+            df = df.assign(**{col: df[col].map(lambda v: AGE_SRC_LABEL.get(v, v) if pd.notna(v) else "없음")})
+            cc[col] = st.column_config.TextColumn("학문적 나이 출처", help=AGE_SRC_HELP)
+    return df
+
+
 def clickable_table(df: pd.DataFrame, key: str, link_col: str, column_config: dict | None = None,
                     link_label: str | None = None, link_help: str = "클릭하면 아래에 자세한 정보가 열립니다",
                     height: int | None = None, **kw) -> int | None:
     """Selectable table: link-styled column (▸ header), selected row highlighted. Returns the selected row."""
     cc = dict(column_config or {})
+    df = _explain_age_source(df, cc)
     lbl = link_label or (cc.get(link_col) if isinstance(cc.get(link_col), str) else link_col)
     cc[link_col] = st.column_config.TextColumn(f"{lbl} ↗", help=link_help)
     pick = selected_row(key)
