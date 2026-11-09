@@ -21,6 +21,25 @@ console = Console()
 
 THIS_YEAR = date.today().year
 
+from contextlib import contextmanager
+
+
+@contextmanager
+def _progress(label: str, every: int = 25):
+    """Rich bar on a terminal; plain periodic lines when output is redirected to a log."""
+    if console.is_terminal:
+        from rich.progress import Progress
+
+        with Progress(console=console) as prog:
+            task = prog.add_task(label, total=None)
+            yield lambda n, tot: prog.update(task, completed=n, total=tot)
+    else:
+        def cb(n, tot):
+            if n % every == 0 or n == tot:
+                print(f"{label}: {n}/{tot}", flush=True)
+        yield cb
+
+
 
 def _split(s: Optional[str]) -> list[str] | None:
     return [x.strip() for x in s.split(",") if x.strip()] if s else None
@@ -165,18 +184,12 @@ def update_orcid(
     limit: Optional[int] = typer.Option(None),
 ):
     """Fetch degree years from ORCID (public API) into the encrypted PII DB."""
-    from rich.progress import Progress
-
     from fp import pii
     from fp.ingest import orcid
 
     con = pii.connect()
-    with Progress(console=console) as prog:
-        task = prog.add_task("ORCID", total=None)
-        stats = orcid.update(
-            con, scope=scope, force=force, limit=limit,
-            progress=lambda n, tot: prog.update(task, completed=n, total=tot),
-        )
+    with _progress("ORCID") as cb:
+        stats = orcid.update(con, scope=scope, force=force, limit=limit, progress=cb)
     console.print(stats)
 
 
@@ -189,17 +202,13 @@ def update_homepage(
     workers: int = typer.Option(4),
 ):
     """Extract degree/birth years from homepages/CVs of people still missing a PhD year."""
-    from rich.progress import Progress
-
     from fp import pii
     from fp.ingest import homepage
 
     con = pii.connect()
-    with Progress(console=console) as prog:
-        task = prog.add_task("homepage", total=None)
+    with _progress("homepage") as cb:
         stats = homepage.update(
-            con, scope=scope, force=force, limit=limit, use_llm=not no_llm, workers=workers,
-            progress=lambda n, tot: prog.update(task, completed=n, total=tot),
+            con, scope=scope, force=force, limit=limit, use_llm=not no_llm, workers=workers, progress=cb
         )
     console.print(stats)
 
