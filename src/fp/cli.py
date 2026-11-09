@@ -202,7 +202,27 @@ def candidates(
     if csv_out and not include_pii:
         keep = [i for i, c in enumerate(cols) if c not in age.PII_COLUMNS]
         rows, cols = [[r[i] for i in keep] for r in rows], [cols[i] for i in keep]
+    elif not csv_out:
+        rows, cols = _compact_age(rows, cols)
+        console.print("[dim]* = estimated (no PhD/birth year on file); pctl vs KR faculty with acad age ± window[/dim]")
     _show(rows, cols, f"Candidates {school or country} {start}-{end} {area or 'all'} age {age_min}-{age_max}", csv_out)
+
+
+def _compact_age(rows, cols):
+    """Terminal view: fold *_src columns into a '*' marker on estimated values."""
+    ix = {c: i for i, c in enumerate(cols)}
+    out_cols = ["name", "institution", "acad_age", "birth", "pubs", "adj", "pctl", "cohort_n"]
+    out = []
+    for r in rows:
+        est_age = (r[ix["age_src"]] or "").startswith("est") or r[ix["age_src"]] is None
+        est_birth = (r[ix["birth_src"]] or "").startswith("est") or r[ix["birth_src"]] is None
+        mark = lambda v, est: "-" if v is None else f"{v}{'*' if est else ''}"
+        out.append([
+            r[ix["name"]], r[ix["institution"]], mark(r[ix["acad_age"]], est_age),
+            mark(r[ix["birth_year"]], est_birth), r[ix["pubs"]], r[ix["adj"]],
+            "-" if r[ix["cohort_pctl"]] is None else int(r[ix["cohort_pctl"]]), r[ix["cohort_n"]],
+        ])
+    return out, out_cols
 
 
 @pii_app.command("show")
