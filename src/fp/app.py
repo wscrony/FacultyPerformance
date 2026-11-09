@@ -223,7 +223,7 @@ with tab_search:
         column_config={
             "rank": st.column_config.NumberColumn("순위", help="선택한 순위 기준으로 매긴 검색 결과 내 순위"),
             "age": st.column_config.NumberColumn(
-                "나이", help="올해 − 출생연도. 출생연도가 없으면 PhD−30, 학사−23, 첫 top 논문−28로 추정 (±3년 정도 오차)"),
+                "나이 (추정·부정확)", help="정확하지 않은 추정치. 올해 − 출생연도. 출생연도가 없으면 PhD−30, 학사−23, 첫 top 논문−28로 추정 (±3년 정도 오차)"),
             "나이추정": ui.AGE_COLS["age_est"],
             "acad_age": st.column_config.NumberColumn("학문적 나이", help="올해 − 박사 연도 (박사 전이면 음수)"),
             "추정": st.column_config.CheckboxColumn(

@@ -593,3 +593,11 @@ def pii_stats():
 
 if __name__ == "__main__":
     app()
+
+
+@app.command("export-app-bundle")
+def export_app_bundle():
+    """Open-data bundle for the hosted app (streamlit.app) → exports/app_bundle/fp_data.tar.gz."""
+    from fp import bundle
+
+    typer.echo(bundle.export())

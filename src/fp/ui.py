@@ -225,8 +225,8 @@ def add_age(df: pd.DataFrame, name_col: str = "name", after: str | None = None) 
 
 
 AGE_COLS = {
-    "age": st.column_config.NumberColumn("나이 (추정)", help="올해 − 출생연도. 출생연도를 모르면 PhD−30 / 학사−23 / "
-                                                           "첫 top 논문−28로 추정"),
+    "age": st.column_config.NumberColumn("나이 (추정·부정확)", help="정확하지 않은 추정치입니다. 올해 − 출생연도이며, "
+                                         "출생연도를 모르면 PhD−30 / 학사−23 / 첫 top 논문−28로 추정 (수 년 오차 가능)"),
     "age_est": st.column_config.CheckboxColumn(
         "나이 추정값", help="체크 = 출생연도를 직접 확인하지 못해 추정한 나이. 박사 연도−30 → 학사 연도−23 → "
                           "첫 top 논문 연도−28 순으로 씀 (±3년 정도 오차)"),
@@ -342,7 +342,7 @@ def person_card(name: str, f, key: str) -> None:
             est_a = str(p.age_source or "est").startswith("est")
             kp = [
                 ("소속", p.affiliation or "-", role or None),
-                ("나이" + (" (추정)" if est_b else ""), f"{THIS_YEAR - int(p.birth_year)}세" if pd.notna(p.birth_year)
+                ("나이" + (" (추정·부정확)" if est_b else ""), f"{THIS_YEAR - int(p.birth_year)}세" if pd.notna(p.birth_year)
                  else "-", f"출생 {int(p.birth_year)} · 출처 {p.birth_source}" if pd.notna(p.birth_year) else None),
                 ("학문적 나이" + (" (추정)" if est_a else ""), f"{int(p.academic_age)}년" if pd.notna(p.academic_age)
                  else "-", (f"PhD {int(p.phd_year)}" + (f" {p.phd_institution}" if p.phd_institution else "")

@@ -153,6 +153,11 @@ def _get_key() -> str:
 def connect(read_only: bool = False) -> duckdb.DuckDBPyConnection:
     """public.duckdb as main catalog + encrypted pii.duckdb attached as `pii`."""
     con = db.connect(read_only=read_only)
+    if read_only and not paths.PII_DB.exists() and paths.PII_OPEN_DB.exists():
+        # hosted app (streamlit.app): the open-data bundle ships this DB unencrypted (user decision 2026-11-10:
+        # all of it is built from public sources)
+        con.execute(f"ATTACH '{paths.PII_OPEN_DB}' AS pii (READ_ONLY)")
+        return con
     key = _get_key()
     mode = ", READ_ONLY" if read_only and paths.PII_DB.exists() else ""
     con.execute(f"ATTACH '{paths.PII_DB}' AS pii (ENCRYPTION_KEY '{key}'{mode})")

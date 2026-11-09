@@ -54,3 +54,18 @@ fp schedule status | uninstall
 
 데이터 갱신(`fp update all`)은 이 Mac에서 하고, 끝나면 두 `.duckdb` 파일을 서버에 다시 복사한 뒤 앱을 재시작합니다
 (실행 중인 앱이 DB를 잠그므로 복사 전에 서버 앱을 멈춥니다).
+
+## streamlit.app 서비스 (Community Cloud)
+
+모든 데이터는 공개 데이터(CSrankings · DBLP · OpenAlex · ORCID · 공개 홈페이지)로 만들었고, 나이는 추정치라 정확하지 않습니다
+(앱 사이드바·로그인 화면에 표시).
+
+1. `fp export-app-bundle` → `exports/app_bundle/fp_data.tar.gz` (public DB + 암호화 해제한 개인 DB, 크롤링 원문 제외)
+2. GitHub release에 올림: `gh release create data-YYYYMMDD exports/app_bundle/fp_data.tar.gz -R wscrony/FacultyPerformance`
+3. share.streamlit.io → New app → 저장소 `wscrony/FacultyPerformance`, 브랜치 `main`, main file `src/fp/main.py`
+4. App settings → Secrets:
+   ```toml
+   FP_APP_PASSWORD = "…"
+   FP_DATA_URL = "https://github.com/wscrony/FacultyPerformance/releases/download/data-YYYYMMDD/fp_data.tar.gz"
+   ```
+데이터를 갱신하면 1–2를 새 태그로 다시 하고 `FP_DATA_URL`만 바꾸면 됩니다. 호스팅에서는 Top 학회 설정이 사용자별(세션)로만 바뀝니다.

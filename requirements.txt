@@ -1,0 +1,2 @@
+# Streamlit Community Cloud installs this (main file: src/fp/main.py)
+-e .[app]

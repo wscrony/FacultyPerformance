@@ -14,6 +14,7 @@ EXPORTS = ROOT / "exports"
 
 PUBLIC_DB = DATA / "public.duckdb"
 PII_DB = DATA / "pii.duckdb"
+PII_OPEN_DB = DATA / "pii_open.duckdb"  # hosted-app bundle (unencrypted)
 
 
 def ensure_dirs() -> None:

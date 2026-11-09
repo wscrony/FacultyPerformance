@@ -15,7 +15,21 @@ FILE = paths.DATA / "top_venues.json"
 DEFAULT = {"top": [], "not_top": ["aaai", "ijcai"]}  # user decision (2026-11): AAAI/IJCAI are not top
 
 
+def _hosted() -> bool:
+    import os
+
+    return bool(os.environ.get("FP_HOSTED"))
+
+
+def _session():
+    import streamlit as st
+
+    return st.session_state
+
+
 def load() -> dict:
+    if _hosted() and "_tv_choice" in _session():
+        return _session()["_tv_choice"]
     try:
         d = json.loads(FILE.read_text())
         return {"top": sorted(set(d.get("top") or [])), "not_top": sorted(set(d.get("not_top") or []))}
@@ -24,11 +38,18 @@ def load() -> dict:
 
 
 def save(top: list[str], not_top: list[str]) -> None:
+    if _hosted():  # each viewer's own choice; the shipped file stays the default
+        ss = _session()
+        ss["_tv_choice"] = {"top": sorted(set(top)), "not_top": sorted(set(not_top))}
+        ss["_tv_ver"] = ss.get("_tv_ver", 0) + 1
+        return
     FILE.parent.mkdir(parents=True, exist_ok=True)
     FILE.write_text(json.dumps({"top": sorted(set(top)), "not_top": sorted(set(not_top))}, indent=1))
 
 
 def version() -> float:
+    if _hosted():
+        return float(_session().get("_tv_ver", 0))
     try:
         return FILE.stat().st_mtime
     except FileNotFoundError:
