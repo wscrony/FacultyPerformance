@@ -154,7 +154,10 @@ def person_series(con, names: list[str], f: Filter):
     conds, params = ["p.year BETWEEN ? AND ?"], [f.start, f.end]
     if not f.next_tier:
         conds.append("NOT v.next_tier")
-    if f.areas:
+    if f.venues:
+        conds.append("v.venue IN (SELECT unnest(?))")
+        params.append(f.venues)
+    elif f.areas:
         conds.append("v.area IN (SELECT unnest(?))")
         params.append(f.areas)
     q = f"""

@@ -381,3 +381,11 @@ def person_field_counts(con, names: list[str], f: BF):
         """,
         [names, *prm],
     ).df()
+
+
+def field_venues(con, fields: list[str], next_tier: bool = False) -> list[str]:
+    """Venues belonging to the given department fields (top venues only unless next_tier)."""
+    return [r[0] for r in con.execute(
+        f"SELECT v.venue FROM venue v WHERE ({_FIELD_SQL}) IN (SELECT unnest(?)) AND (? OR NOT v.next_tier) ORDER BY 1",
+        [fields, next_tier],
+    ).fetchall()]

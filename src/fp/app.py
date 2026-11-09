@@ -7,6 +7,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from fp import age, links, metrics, pii  # noqa: F401
+from fp import boards as B
 
 from fp.ui import THIS_YEAR, con  # shared cursor (one DuckDB connection per process)
 from fp import ui
@@ -53,18 +54,19 @@ areas_df = area_options()
 with st.sidebar:
     st.header("필터")
     yr = st.slider("기간", 1980, THIS_YEAR, (THIS_YEAR - 9, THIS_YEAR))
-    cats = st.multiselect("분야 그룹", ["ai", "systems", "theory", "interdisciplinary"])
-    pool = areas_df[areas_df.category.isin(cats)] if cats else areas_df
+    cats = st.multiselect("분야", list(B.FIELDS), format_func=lambda k: f"{k} · {B.FIELDS[k][0]}", key="sb_fields")
+    pool = areas_df[areas_df.area.map(lambda a: B.AREA_FIELD.get(a, "기타")).isin(cats)] if cats else areas_df
     picked = st.multiselect(
-        "세부 분야", pool.area.tolist(), format_func=lambda a: f"{a} ({areas_df.set_index('area').title[a]})"
+        "세부 분야 (CSrankings)", pool.area.tolist(), format_func=lambda a: f"{a} ({areas_df.set_index('area').title[a]})"
     )
-    sel_areas = picked or (pool.area.tolist() if cats else None)
+    sel_areas = picked or None
     next_tier = st.toggle("확장 학회 포함", value=False, help="기본은 top 학회만. 켜면 CSrankings 확장 학회 + AAAI·IJCAI 포함")
+    sel_venues = B.field_venues(con(), cats, next_tier) if cats and not picked else None
     region = st.radio("국가", ["kr", "world"], horizontal=True)
     st.caption("학교 점수 = 분야별 (논문 수+1)의 기하평균. 같은 학교 교수 공저 논문은 각자 1편씩 셉니다.")
 
 country = None if region == "world" else region
-F = metrics.Filter(start=yr[0], end=yr[1], areas=sel_areas, next_tier=next_tier, country=country)
+F = metrics.Filter(start=yr[0], end=yr[1], areas=sel_areas, next_tier=next_tier, country=country, venues=sel_venues)
 
 tab_school, tab_search, tab_cmp, tab_status = st.tabs(["학교 비교", "교수·후보자 검색", "교수 비교", "데이터 현황"])
 
@@ -123,10 +125,14 @@ with tab_search:
     age_rng = c2.slider("학문적 나이 (PhD 후 연수)", 0, 45, (0, 45))
     min_pubs = c3.number_input("최소 논문 수", 0, 200, 0, 1)
     window = c4.number_input("코호트 ±", 1, 5, 2)
-    t1, t2 = st.columns([2, 3])
+    t1, t2, t3 = st.columns([2, 4, 2])
     sort = t1.selectbox("순위 기준", list(age.SORTS), format_func=age.SORTS.get, key="sort")
-    known_only = t2.toggle("확인된 나이만 (ORCID·홈페이지·수동)", value=False)
+    known_only = t3.toggle("확인된 나이만 (ORCID·홈페이지·수동)", value=False)
+    sf = t2.multiselect("분야 (이 검색에만 적용, 비우면 사이드바 필터)", list(B.FIELDS),
+                        format_func=lambda k: f"{k} · {B.FIELDS[k][0]}", key="search_fields")
     G = metrics.Filter(**{**F.__dict__, "schools": sch or None})
+    if sf:
+        G.areas, G.venues = None, B.field_venues(con(), sf, next_tier)
     rows, cols = age.candidates(
         con(), G,
         age_min=age_rng[0] if age_rng[0] > 0 else None,
@@ -207,7 +213,7 @@ with tab_search:
             st.dataframe(r, hide_index=True, width="stretch")
         with d2:
             s = metrics.person_series(con(), [who], metrics.Filter(start=1970, end=THIS_YEAR,
-                                                                   areas=sel_areas, next_tier=next_tier))
+                                                                   areas=sel_areas, next_tier=next_tier, venues=sel_venues))
             by_area = s.groupby("area").pubs.sum().sort_values()
             fig = go.Figure(go.Bar(x=by_area.values, y=by_area.index, orientation="h",
                                    marker=dict(color=SERIES[0], cornerradius=4),
@@ -257,7 +263,7 @@ with tab_cmp:
         _plot(fig, height=max(300, 22 * len(piv) * max(1, len(names)) // 2 + 120))
 
         full = metrics.person_series(con(), names, metrics.Filter(start=1970, end=THIS_YEAR, areas=sel_areas,
-                                                                   next_tier=next_tier))
+                                                                   next_tier=next_tier, venues=sel_venues))
         fig = go.Figure()
         for n in names:
             d = full[full["name"] == n].groupby("year").pubs.sum().sort_index().cumsum()
