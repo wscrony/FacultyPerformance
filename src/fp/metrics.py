@@ -47,7 +47,10 @@ JOIN institution i ON i.institution = p.dept
 
 def all_areas(con) -> list[tuple[str, str, str]]:
     return con.execute(
-        "SELECT DISTINCT area, area_title, category FROM venue ORDER BY category, area"
+        # one row per area: added DBLP venues (category 'extra') reuse CSrankings areas and must not duplicate them
+        """SELECT area, coalesce(max(area_title) FILTER (WHERE category IS DISTINCT FROM 'extra'), max(area_title)),
+                  coalesce(min(category) FILTER (WHERE category IS DISTINCT FROM 'extra'), 'extra') AS category
+           FROM venue WHERE area IS NOT NULL GROUP BY area ORDER BY category, area"""
     ).fetchall()
 
 

@@ -372,6 +372,8 @@ def top_venue_editor() -> None:
     from fp import topvenues
 
     c = con()
+    if not c.execute("SELECT count(*) FROM duckdb_tables() WHERE table_name = 'dblp_paper'").fetchone()[0]:
+        return
     ours = c.execute(
         f"""SELECT m.venue, m.area, m.area_title, coalesce(v.next_tier, TRUE) AS cur_nt,
                    m.next_tier OR m.category = 'extra' AS cs_nt, m.category = 'extra' AS extra, count(p.key) AS papers
@@ -406,7 +408,8 @@ def top_venue_editor() -> None:
     df = df.sort_values(["countable", "top", "avg", "papers"], ascending=[False, False, False, False])
     n_top = int(df.top.sum())
     with st.expander(f"⚙️ Top 학회 설정 — 현재 {n_top}개 학회를 top으로 셈 (클릭해서 바꾸기)"):
-        st.caption("체크한 학회만 'top 학회'로 셉니다 (모든 페이지의 논문 수·순위·학문적 나이 추정에 적용). "
+        st.caption("체크한 학회만 'top 학회'로 셉니다. 이 설정은 하나라서 국내 기관·한국인 연구자·검색 어느 페이지에서 "
+                   "바꿔도 모든 페이지의 논문 수·순위·학문적 나이 추정에 적용됩니다. "
                    f"평가 열은 [CS 분야 우수 학술대회 목록]({topvenues.CATALOG_URL}) (정보과학회 2024 · BK21 2018 · KAIST · "
                    "SNU · POSTECH). 저장은 이 컴퓨터의 data/top_venues.json.")
         # ── presets: pick a whole list at once ──
