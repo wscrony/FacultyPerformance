@@ -15,12 +15,12 @@ f = ui.board_filter("w")
 c = ui.con()
 
 
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=3600, max_entries=50)
 def _inst(f: B.BF, top: int):
     return B.institution_share(ui.con(), f, top)
 
 
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=3600, max_entries=50)
 def _q(name: str, f: B.BF, *args):
     return getattr(B, name)(ui.con(), f, *args)
 

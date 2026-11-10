@@ -47,23 +47,25 @@ class BF:
         return f"{alias}.is_last" if self.credit == "last" else "TRUE"
 
 
-def ensure_pinst(con) -> None:
-    """Temp table: one row per (paper, faculty author) with the author's institution and region group."""
-    have = con.execute(
-        "SELECT count(*) FROM duckdb_tables() WHERE table_name = 'pinst' AND temporary"
-    ).fetchone()[0]
-    if have:
-        return
-    con.execute(
-        f"""
-        CREATE TEMP TABLE pinst AS
+PINST_SQL = f"""
         WITH fac AS (SELECT name, any_value(affiliation) AS aff FROM cs_faculty GROUP BY name)
         SELECT p.key, p.venue, p.year, a.pos, a.pos = p.n_authors AS is_last, a.name,
                f.aff AS institution, i.country, {GROUP_SQL} AS grp
         FROM dblp_authorship a JOIN fac f ON f.name = a.name JOIN dblp_paper p USING (key)
         JOIN institution i ON i.institution = f.aff
         """
-    )
+
+
+def ensure_pinst(con) -> None:
+    """One row per (paper, faculty author) with the author's institution and region group. The app bundle ships it
+    as a real table (shared by every cursor); otherwise it is built as a temp table on this cursor (~100 MB)."""
+    have = con.execute(
+        "SELECT count(*) FROM duckdb_tables() WHERE table_name = 'pinst' "
+        "AND (temporary OR database_name = current_database())"
+    ).fetchone()[0]
+    if have:
+        return
+    con.execute(f"CREATE TEMP TABLE pinst AS {PINST_SQL}")
 
 
 def total_papers(con, f: BF) -> int:

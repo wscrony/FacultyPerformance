@@ -49,7 +49,15 @@ CREATE TABLE IF NOT EXISTS cs_pub (
 def connect(path: Path | None = None, read_only: bool = False) -> duckdb.DuckDBPyConnection:
     path = path or paths.PUBLIC_DB
     paths.ensure_dirs()
-    con = duckdb.connect(str(path), read_only=read_only)
+    if read_only:
+        # the app: DuckDB's default memory_limit is 80% of the *host* RAM, far above a streamlit.app container
+        import os
+
+        cfg = {"memory_limit": os.environ.get("FP_DUCKDB_MEMORY", "1GB"),
+               "threads": os.environ.get("FP_DUCKDB_THREADS", "2")}
+        con = duckdb.connect(str(path), read_only=True, config=cfg)
+    else:
+        con = duckdb.connect(str(path), read_only=read_only)
     if not read_only:
         con.execute(SCHEMA)
     return con

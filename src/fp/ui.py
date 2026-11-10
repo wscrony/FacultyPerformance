@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import threading
 from datetime import date
 
 import duckdb
@@ -54,25 +55,39 @@ def _root_con() -> duckdb.DuckDBPyConnection:
     return pii.connect(read_only=True)
 
 
+_CURS: dict = {}  # script-run thread -> (thread, top-venue version, cursor); shared by all sessions
+_CURS_LOCK = threading.Lock()
+
+
 def con() -> duckdb.DuckDBPyConnection:
-    """Per-session cursor (DuckDB connections aren't shared across threads); temp views are per cursor.
-    Rebuilt when the top-venue choice changes (another session may have saved it)."""
+    """Cursor for the current script run (temp views are per cursor). A rerun can start while the previous run's
+    query is still executing and a DuckDB cursor refuses concurrent calls (ResourceInUseException), so each
+    script-run thread gets its own; cursors of finished runs are closed here — every open cursor holds its temp
+    tables, and keeping them per session exhausted the streamlit.app memory limit."""
     from fp import topvenues
 
-    import threading
-
-    # one cursor per (session, script-run thread): a rerun can start while the previous run's query is still
-    # executing, and a DuckDB cursor refuses concurrent calls (ResourceInUseException)
     v = topvenues.version()
-    k = ("cur", threading.get_ident(), v)
-    curs = st.session_state.setdefault("_curs", {})
-    if k not in curs:
-        for old in [x for x in curs if x[1] == k[1]]:  # stale top-venue version for this thread
-            curs.pop(old, None)
-        c = _root_con().cursor()
-        age.create_views(c)
-        curs[k] = c
-    return curs[k]
+    me = threading.current_thread()
+    with _CURS_LOCK:
+        for t in [t for t, (th, _, _) in _CURS.items() if not th.is_alive()]:
+            _close(_CURS.pop(t)[2])
+        got = _CURS.get(me.ident)
+        if got and got[0] is me and got[1] == v:
+            return got[2]
+        if got:
+            _close(got[2])
+    c = _root_con().cursor()
+    age.create_views(c)
+    with _CURS_LOCK:
+        _CURS[me.ident] = (me, v, c)
+    return c
+
+
+def _close(c) -> None:
+    try:
+        c.close()
+    except Exception:
+        pass
 
 
 def require_db():
@@ -333,12 +348,19 @@ def people_table(df: pd.DataFrame, key: str, f, column_config: dict | None = Non
 
 
 def person_card(name: str, f, key: str) -> None:
-    from fp import links
-
     mf = _as_filter(f)
     # own cursor: a click reruns the script while the previous run may still be querying the session cursor;
     # sharing one DuckDB cursor across those threads returned empty results (Juho Kim 0001 → 0 papers)
     c = _root_con().cursor()
+    try:
+        _person_card(c, name, mf, f, key)
+    finally:
+        c.close()
+
+
+def _person_card(c, name: str, mf, f, key: str) -> None:
+    from fp import links
+
     age.create_views(c)
     pa = c.execute("""SELECT a.affiliation, a.phd_year, a.phd_institution, a.age_source, a.academic_age,
                              a.birth_year, a.birth_source, a.first_top_year, r.role, s.stage

@@ -30,7 +30,7 @@ SORTS = {"field": "분야 논문", "per_year": "분야 연평균 (활동 연수 
 sort = b3.selectbox("정렬", list(SORTS), format_func=SORTS.get, key="rc_sort")
 nt = b4.toggle("확장 학회 포함", value=False, key="rc_nt")
 
-@st.cache_data(ttl=3600, show_spinner="후보 계산 중…")
+@st.cache_data(ttl=3600, max_entries=6, show_spinner="후보 계산 중…")
 def _compute(y0: int, y1: int, amin: int, amax: int, nt: bool, min_p: int, tv: float):
     """All candidates per field (before the type/location filters). Cached: a click only reruns the page."""
     from fp import age as _age

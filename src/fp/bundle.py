@@ -32,6 +32,13 @@ def export(out_dir: Path = paths.EXPORTS / "app_bundle") -> Path:
         # public: compact copy (COPY FROM DATABASE rewrites without the free blocks of past reloads)
         src.execute(f"ATTACH '{tmp / 'public.duckdb'}' AS outp")
         src.execute("COPY FROM DATABASE public TO outp")
+        # paper × faculty-author table the boards need: built once here so the app doesn't build a ~100 MB temp
+        # copy per cursor (that blew the streamlit.app memory limit)
+        from fp.boards import PINST_SQL
+
+        src.execute("USE outp")
+        src.execute(f"CREATE OR REPLACE TABLE pinst AS {PINST_SQL}")
+        src.execute("USE memory")
         src.execute("DETACH outp")
         src.execute(f"ATTACH '{tmp / 'pii_open.duckdb'}' AS outq")
         for (t,) in src.execute("SELECT table_name FROM duckdb_tables() WHERE database_name = 'pii'").fetchall():
