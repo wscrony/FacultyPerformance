@@ -231,7 +231,47 @@ with tabs[1]:
                     "kc_rank": st.column_config.TextColumn(f"동년차(±{win}) 국내 교수 중",
                                                            help="학문적 나이가 비슷한 국내 교수 사이 순위 (그 분야 논문 1편 이상인 교수)"),
                     "kc_pct": st.column_config.NumberColumn(f"동년차 국내 교수 대비", format="상위 %d%%")})
-                ui.person_card(who, B.BF(start=y0, end=y1, next_tier=nt), key="rc_q_card")
+                if pd.notna(my_age):
+                    st.markdown(f"**동년차(학문적 나이 {int(my_age) - win}~{int(my_age) + win}년) 중 {who}보다 논문이 많은 사람**")
+                    flds = list(pf.sort_values("papers", ascending=False).field)
+                    fk = st.selectbox("분야", flds, key="rc_q_fld",
+                                      format_func=lambda k: f"{k} · {B.FIELDS[k][0]}" if k in B.FIELDS else k)
+                    x = int(pf.set_index("field").papers[fk])
+                    aff = dict(c.execute("SELECT name, any_value(affiliation) FROM cs_faculty GROUP BY 1").fetchall())
+                    kk = krp_all[(krp_all.field == fk) & (krp_all.name != who)]
+                    kk = kk[kk.name.map(lambda n: n in ages and abs(ages[n] - my_age) <= win)]
+                    kr_rows = pd.DataFrame({"name": kk.name, "group": "국내 교수", "institution": kk.name.map(aff),
+                                            "acad_age": kk.name.map(ages), "field": kk.papers})
+                    d = per_field.get(fk)
+                    if d is not None:
+                        d = d[(d.name != who) & ((d.acad_age - my_age).abs() <= win)]
+                        cd_rows = d[["name", "type", "institution", "acad_age", "field"]].rename(columns={"type": "group"})
+                    else:
+                        cd_rows = kr_rows.iloc[0:0]
+                    me = pd.DataFrame([{"name": who, "group": "◀ 검색한 사람", "institution":
+                                        m.set_index("name").affiliation.get(who), "acad_age": my_age, "field": x}])
+                    allc = pd.concat([kr_rows, cd_rows], ignore_index=True)
+                    better = allc[allc.field > x]
+                    same = allc[allc.field == x]
+                    show = pd.concat([better, me], ignore_index=True).sort_values(
+                        ["field", "name"], ascending=[False, True], kind="mergesort").reset_index(drop=True)
+                    show["acad_age"] = show.acad_age.round().astype("Int64")
+                    show.insert(0, "no", range(1, len(show) + 1))
+                    st.caption(f"{fk} 논문 {x}편보다 많은 동년차: 국내 교수 {int((better.group == '국내 교수').sum())}명 · "
+                               f"초빙 후보 {int((better.group != '국내 교수').sum())}명 (같은 편수 {len(same)}명). "
+                               "초빙 후보는 위 조건(유형·위치·최소 논문)에 맞는 사람만. 이름을 누르면 상세가 열립니다.")
+                    ui.people_table(
+                        ui.add_age(show, after="acad_age"), "rc_q_better",
+                        B.BF(start=y0, end=y1, next_tier=nt, fields=[fk]),
+                        height=min(520, 36 * len(show) + 40),
+                        column_config={
+                            "no": st.column_config.NumberColumn("#", width="small"), "group": "구분",
+                            "institution": "소속", "acad_age": "학문적 나이 (추정)",
+                            "field": st.column_config.ProgressColumn(
+                                f"{fk} 논문 {y0}–{y1}", format="%d", min_value=0,
+                                max_value=int(show.field.max() or 1))})
+                with st.expander(f"{who} 상세 (논문 목록·피인용·나이 근거)"):
+                    ui.person_card(who, B.BF(start=y0, end=y1, next_tier=nt), key="rc_q_card")
     elif q:
         st.caption("3글자 이상 입력하세요.")
 for t, (k, d) in zip(tabs[2:], per_field.items()):
