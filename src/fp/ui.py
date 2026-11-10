@@ -332,10 +332,42 @@ def clickable_table(df: pd.DataFrame, key: str, link_col: str, column_config: di
     return pick
 
 
+@st.cache_data(ttl=3600)
+def _korean_names(_v: float = 0.0) -> dict[str, str]:
+    """DBLP name → Hangul name (pii.position.korean_name: web pages / manual)."""
+    c = _root_con().cursor()
+    try:
+        have = c.execute("SELECT count(*) FROM duckdb_columns() WHERE database_name = 'pii' AND table_name = 'position' "
+                         "AND column_name = 'korean_name'").fetchone()[0]
+        if not have:
+            return {}
+        return dict(c.execute("SELECT person, korean_name FROM pii.position WHERE korean_name IS NOT NULL").fetchall())
+    finally:
+        c.close()
+
+
+def korean_name(name: str) -> str | None:
+    return _korean_names().get(name)
+
+
+KNAME_COL = st.column_config.TextColumn("한글", width="small", help="공개 웹 페이지에서 찾은 한글 이름 (못 찾으면 빈칸)")
+
+
+def with_korean(df: pd.DataFrame, name_col: str = "name") -> pd.DataFrame:
+    """Insert a 'kname' (Hangul name) column right after the name column."""
+    m = _korean_names()
+    if not m or name_col not in df.columns or "kname" in df.columns:
+        return df
+    out = df.copy()
+    out.insert(list(out.columns).index(name_col) + 1, "kname", out[name_col].map(m).fillna(""))
+    return out
+
+
 def people_table(df: pd.DataFrame, key: str, f, column_config: dict | None = None, name_col: str = "name",
                  height: int | None = None, **kw) -> None:
     """Person table: click a name → person card (papers + citations + age evidence) below."""
-    cc = {**AGE_COLS, **(column_config or {})}
+    df = with_korean(df, name_col)
+    cc = {**AGE_COLS, "kname": KNAME_COL, **(column_config or {})}
     pick = clickable_table(df, key, name_col, cc, link_label=cc.get(name_col) if isinstance(cc.get(name_col), str)
                            else "이름", link_help="클릭하면 논문 목록·피인용·나이 근거가 아래에 열립니다",
                            height=height, **kw)
@@ -373,7 +405,8 @@ def _person_card(c, name: str, mf, f, key: str) -> None:
         role = ""
         if p is not None:
             role = {"KR faculty": "국내 교수", "faculty abroad": "해외 교수"}.get(p.role) or (p.stage or "")
-        st.markdown(f"#### {name}")
+        kn = korean_name(name)
+        st.markdown(f"#### {name}" + (f" ({kn})" if kn else ""))
         lk = links.person_links(c, name)
         if lk:
             st.markdown(" · ".join(f"[{k}{' (검색)' if kind == 'search' else ''}]({u})" for k, (u, kind) in lk.items()))

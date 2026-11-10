@@ -30,3 +30,21 @@ def test_failed_batch_is_retried_next_time(tmp_path):
 
     assert L.judge_all([("A", None, None, "")], judge=boom, path=path)["failed"] == 1
     assert L.load_cache(path) == {}
+
+
+def test_manual_answer_wins_and_keeps_fields(tmp_path):
+    path = tmp_path / "pos.jsonl"
+    L.judge_all([("A B", None, None, "")], path=path, min_version=L.VERSION,
+                judge=lambda items: {0: {"position": "postdoc", "confidence": 0.8, "korean_name": "에이비",
+                                         "institution": "KAIST"}})
+    L.set_manual("A B", "professor", institution="SNU", country="kr", path=path)
+    # a later LLM answer for the same person does not replace the manual one
+    with open(path, "a") as fh:
+        fh.write('{"person": "A B", "position": "postdoc", "confidence": 0.9, "v": 2}\n')
+    r = L.load_cache(path)["A B"]
+    assert (r["position"], r["institution"], r["korean_name"], r["source"]) == ("professor", "SNU", "에이비", "manual")
+
+
+def test_hangul_filter():
+    assert L._hangul("신진우") == "신진우" and L._hangul("남궁 민수") == "남궁 민수"
+    assert L._hangul("Shin") is None and L._hangul("신진우 교수님입니다") is None

@@ -424,6 +424,18 @@ def update_positions(model: str = "sonnet", limit: Optional[int] = typer.Option(
         typer.echo(llm_position.update(con, model=model, limit=limit, workers=workers, progress=cb))
 
 
+@app.command("set-position")
+def set_position(person: str, position: str = typer.Option(..., help="professor/postdoc/phd_student/industry/..."),
+                 institution: Optional[str] = None, country: Optional[str] = typer.Option(None, help="kr, us, ..."),
+                 title: Optional[str] = None, since: Optional[int] = None, korean_name: Optional[str] = None,
+                 url: Optional[str] = None):
+    """Hand-correct a person's current position / Korean name (DBLP name, e.g. "Jinheon Baek"). Takes effect after
+    `fp update positions --store-only` (or the next pipeline run)."""
+    from fp.ingest import llm_position
+
+    typer.echo(llm_position.set_manual(person, position, institution, country, title, since, korean_name, url))
+
+
 @update_app.command("title-citations")
 def update_title_citations(force: bool = typer.Option(False), limit: Optional[int] = typer.Option(None)):
     """Citations for papers without a DOI (NeurIPS/ICLR/...), by exact title match on OpenAlex."""

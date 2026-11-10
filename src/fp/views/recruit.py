@@ -125,13 +125,20 @@ def _norm(x: str) -> str:
     return re.sub(r"[^a-z]", "", re.sub(r"\s+\d{4}$", "", x.lower()))
 
 
+def _hangul_q(q: str) -> str:
+    import re
+
+    return re.sub(r"[^가-힣]", "", q)
+
+
 def _search(q: str) -> pd.DataFrame:
     """DBLP people whose name (without the DBLP homonym number) contains the query, ignoring case/space/hyphen.
     One row per DBLP person: same base name with different numbers = different people (homonyms)."""
     return c.execute(
         r"""WITH m AS (SELECT DISTINCT name FROM author_pub
-                      WHERE regexp_replace(lower(regexp_replace(name, '\s+\d{4}$', '')), '[^a-z]', '', 'g')
-                            LIKE '%' || ? || '%'),
+                      WHERE (? <> '' AND regexp_replace(lower(regexp_replace(name, '\s+\d{4}$', '')), '[^a-z]', '', 'g')
+                            LIKE '%' || ? || '%')
+                         OR name IN (SELECT unnest(?::VARCHAR[]))),
            pub AS (SELECT a.name, min(a.year) AS y0, max(a.year) AS y1, sum(a.count) AS papers_all
                    FROM author_pub a JOIN venue v USING (venue) WHERE a.name IN (SELECT name FROM m)
                    GROUP BY 1),
@@ -145,7 +152,8 @@ def _search(q: str) -> pd.DataFrame:
            LEFT JOIN person_role r ON r.person = m.name LEFT JOIN person_stage s ON s.person = m.name
            LEFT JOIN person_age pa ON pa.person = m.name
            ORDER BY pub.papers_all DESC NULLS LAST LIMIT 40""",
-        [_norm(q)],
+        [_norm(q), _norm(q),
+         [p_ for p_, k in ui._korean_names().items() if _hangul_q(q) and _hangul_q(q) in k.replace(" ", "")]],
     ).df()
 
 
@@ -153,8 +161,8 @@ with tabs[1]:
     st.caption("이름으로 찾아 동명이인을 구분하고, 지금 위 조건(기간·학회·유형)에서 분야별로 몇 등인지 보여줍니다. "
                "DBLP는 동명이인을 'Name 0001', 'Name 0002'처럼 번호로 나눕니다 — 같은 이름이 여러 줄이면 소속·활동 "
                "연도·최근 논문으로 구분하세요.")
-    q = st.text_input("이름 (영문, 예: Hwanjun Song)", key="rc_q")
-    if q and len(_norm(q)) >= 3:
+    q = st.text_input("이름 (영문 또는 한글, 예: Hwanjun Song / 송환준)", key="rc_q")
+    if q and (len(_norm(q)) >= 3 or len(_hangul_q(q)) >= 2):
         m = _search(q)
         if m.empty:
             st.info("DBLP top 학회 논문 저자 중 그 이름이 없습니다.")
@@ -171,17 +179,21 @@ with tabs[1]:
                 st.warning("동명이인(또는 표기만 다른 이름) 있음: "
                            + "; ".join(" / ".join(f"**{n}**" for n in v) for v in dup)
                            + " — 아래 표에서 소속·활동 연도·최근 논문으로 구분하세요.")
+            m = ui.with_korean(m)
+            if "kname" not in m.columns:
+                m["kname"] = ""
             st.dataframe(
-                m[["name", "homonyms", "who", "affiliation", "korean", "academic_age", "active", "papers_all",
+                m[["name", "kname", "homonyms", "who", "affiliation", "korean", "academic_age", "active", "papers_all",
                    "last_paper"]],
                 hide_index=True, width="stretch", height=min(400, 36 * len(m) + 40), column_config={
-                    "name": "DBLP 이름", "homonyms": st.column_config.NumberColumn("같은 이름", format="%d명"),
+                    "name": "DBLP 이름", "kname": ui.KNAME_COL, "homonyms": st.column_config.NumberColumn("같은 이름", format="%d명"),
                     "who": "구분", "affiliation": "소속", "korean": "한국인", "academic_age": "학문적 나이 (추정)",
                     "active": "활동 연도", "papers_all": st.column_config.NumberColumn("top 논문 (전체 기간)"),
                     "last_paper": st.column_config.TextColumn("최근 논문", width="large")})
             w1, w2 = st.columns([4, 1])
             who = w1.selectbox("순위를 볼 사람", list(m.name), key="rc_q_pick",
-                               format_func=lambda n: f"{n} — {m.set_index('name').affiliation.get(n) or '소속 미상'}")
+                               format_func=lambda n: f"{n}{' (' + ui.korean_name(n) + ')' if ui.korean_name(n) else ''} — "
+                                                     f"{m.set_index('name').affiliation.get(n) or '소속 미상'}")
             win = int(w2.number_input("동년차 범위 ±", 1, 10, 3, key="rc_q_win", help="학문적 나이 차이가 이 안인 사람끼리 비교"))
             my_age = m.set_index("name").academic_age.get(who)
             ages = dict(c.execute("SELECT person, academic_age FROM person_age WHERE academic_age IS NOT NULL").fetchall())
@@ -293,7 +305,7 @@ with tabs[1]:
                 with st.expander(f"{who} 상세 (논문 목록·피인용·나이 근거)"):
                     ui.person_card(who, B.BF(start=y0, end=y1, next_tier=nt), key="rc_q_card")
     elif q:
-        st.caption("3글자 이상 입력하세요.")
+        st.caption("영문 3글자 또는 한글 2글자 이상 입력하세요.")
 for t, (k, d) in zip(tabs[2:], per_field.items()):
     with t:
         st.markdown(f"**{k} · {B.FIELDS[k][0]}**")

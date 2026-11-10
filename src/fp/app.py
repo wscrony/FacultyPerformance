@@ -218,11 +218,13 @@ with tab_search:
     view = cdf[["rank", "name", "institution", "role", "affil_year", "age", "나이추정", "acad_age", "추정", "phd_year",
                 "birth_year", "pubs",
                 "first_au", "last_au", "cites", "cites_all", "cohort_pctl", "cohort_n", "age_src"]]
+    view = ui.with_korean(view)
     pick_i = ui.clickable_table(
         view, "search_tab", "name", link_label="이름",
         link_help="클릭하면 논문 목록·피인용·나이 근거가 아래에 열립니다", height=420,
         column_config={
             "rank": st.column_config.NumberColumn("순위", help="선택한 순위 기준으로 매긴 검색 결과 내 순위"),
+            "kname": ui.KNAME_COL,
             "age": st.column_config.NumberColumn(
                 "나이 (추정·부정확)", help="정확하지 않은 추정치. 올해 − 출생연도. 출생연도가 없으면 PhD−30, 학사−23, 첫 top 논문−28로 추정 (±3년 정도 오차)"),
             "나이추정": ui.AGE_COLS["age_est"],
