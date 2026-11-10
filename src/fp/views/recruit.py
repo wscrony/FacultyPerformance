@@ -232,7 +232,7 @@ with tabs[1]:
                                                            help="학문적 나이가 비슷한 국내 교수 사이 순위 (그 분야 논문 1편 이상인 교수)"),
                     "kc_pct": st.column_config.NumberColumn(f"동년차 국내 교수 대비", format="상위 %d%%")})
                 if pd.notna(my_age):
-                    st.markdown(f"**동년차(학문적 나이 {int(my_age) - win}~{int(my_age) + win}년) 중 {who}보다 논문이 많은 사람**")
+                    st.markdown(f"**동년차(학문적 나이 {int(my_age) - win}~{int(my_age) + win}년) 중 {who}보다 잘하는 사람**")
                     flds = list(pf.sort_values("papers", ascending=False).field)
                     fk = st.selectbox("분야", flds, key="rc_q_fld",
                                       format_func=lambda k: f"{k} · {B.FIELDS[k][0]}" if k in B.FIELDS else k)
@@ -250,15 +250,30 @@ with tabs[1]:
                         cd_rows = kr_rows.iloc[0:0]
                     me = pd.DataFrame([{"name": who, "group": "◀ 검색한 사람", "institution":
                                         m.set_index("name").affiliation.get(who), "acad_age": my_age, "field": x}])
-                    allc = pd.concat([kr_rows, cd_rows], ignore_index=True)
-                    better = allc[allc.field > x]
-                    same = allc[allc.field == x]
-                    show = pd.concat([better, me], ignore_index=True).sort_values(
-                        ["field", "name"], ascending=[False, True], kind="mergesort").reset_index(drop=True)
+                    allc = pd.concat([kr_rows, cd_rows, me], ignore_index=True)
+                    # citations of these field papers in the window (OpenAlex, current counts)
+                    fw, fprm = B.BF(start=y0, end=y1, next_tier=nt, fields=[fk]).where("p", "v")
+                    cit = c.execute(
+                        f"""SELECT a.name, sum(pc.cited_by)::BIGINT AS cites, max(pc.cited_by) AS best
+                            FROM dblp_authorship a JOIN dblp_paper p USING (key) JOIN venue v ON v.venue = p.venue
+                            LEFT JOIN paper_cites pc ON pc.key = p.key
+                            WHERE a.name IN (SELECT unnest(?)) AND {fw} GROUP BY 1""",
+                        [list(allc.name), *fprm]).df().set_index("name")
+                    allc["cites"] = allc.name.map(cit.cites).fillna(0).astype(int)
+                    allc["per_paper"] = (allc.cites / allc.field).round(1)
+                    allc["best"] = allc.name.map(cit.best).astype("Int64")
+                    CRIT = {"field": "논문 수", "cites": "피인용 합", "per_paper": "편당 피인용"}
+                    crit = st.radio("비교 기준", list(CRIT), format_func=CRIT.get, horizontal=True, key="rc_q_crit")
+                    mine = allc[allc.group == "◀ 검색한 사람"].iloc[0]
+                    others = allc[allc.group != "◀ 검색한 사람"]
+                    better = others[others[crit] > mine[crit]]
+                    same = others[others[crit] == mine[crit]]
+                    show = pd.concat([better, allc[allc.group == "◀ 검색한 사람"]], ignore_index=True).sort_values(
+                        [crit, "name"], ascending=[False, True], kind="mergesort").reset_index(drop=True)
                     show["acad_age"] = show.acad_age.round().astype("Int64")
                     show.insert(0, "no", range(1, len(show) + 1))
-                    st.caption(f"{fk} 논문 {x}편보다 많은 동년차: 국내 교수 {int((better.group == '국내 교수').sum())}명 · "
-                               f"초빙 후보 {int((better.group != '국내 교수').sum())}명 (같은 편수 {len(same)}명). "
+                    st.caption(f"{fk} {CRIT[crit]} 기준으로 {who}({mine[crit]:,})보다 앞선 동년차: 국내 교수 {int((better.group == '국내 교수').sum())}명 · "
+                               f"초빙 후보 {int((better.group != '국내 교수').sum())}명 (같은 값 {len(same)}명). "
                                "초빙 후보는 위 조건(유형·위치·최소 논문)에 맞는 사람만. 이름을 누르면 상세가 열립니다.")
                     ui.people_table(
                         ui.add_age(show, after="acad_age"), "rc_q_better",
@@ -269,7 +284,12 @@ with tabs[1]:
                             "institution": "소속", "acad_age": "학문적 나이 (추정)",
                             "field": st.column_config.ProgressColumn(
                                 f"{fk} 논문 {y0}–{y1}", format="%d", min_value=0,
-                                max_value=int(show.field.max() or 1))})
+                                max_value=int(show.field.max() or 1)),
+                            "cites": st.column_config.NumberColumn(
+                                "피인용", format="localized",
+                                help=f"이 {fk} 논문들의 현재 피인용 합 (OpenAlex; DOI·제목으로 못 찾은 논문은 빠짐)"),
+                            "per_paper": st.column_config.NumberColumn("편당 피인용", format="%.1f"),
+                            "best": st.column_config.NumberColumn("최다 피인용 논문", format="localized")})
                 with st.expander(f"{who} 상세 (논문 목록·피인용·나이 근거)"):
                     ui.person_card(who, B.BF(start=y0, end=y1, next_tier=nt), key="rc_q_card")
     elif q:
