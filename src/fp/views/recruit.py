@@ -48,10 +48,11 @@ def _compute(y0: int, y1: int, amin: int, amax: int, nt: bool, min_p: int, tv: f
     cand["type"] = ["해외 교수" if r == "faculty abroad" or stage.get(n) == _age.ABROAD_PROF else (stage.get(n) or "미상")
                     for n, r in zip(cand.name, cand.role)]
     web = st_[st_.stage_source == "web"]
-    cand["verified"] = cand.name.map(
-        {n: " · ".join(str(x) for x in (r.pos_title, r.pos_inst) if pd.notna(x) and x)
-            + (f" ({int(r.pos_since)}~)" if pd.notna(r.pos_since) else "") for n, r in web.iterrows()}).fillna("")
-    cand["pos_url"] = cand.name.map(web.pos_url.dropna()).fillna("")
+    vmap = {n: " · ".join(str(x) for x in (r.pos_title, r.pos_inst) if pd.notna(x) and x)
+            + (f" ({int(r.pos_since)}~)" if pd.notna(r.pos_since) else "") for n, r in web.iterrows()}
+    umap = {n: u for n, u in web.pos_url.items() if pd.notna(u)}
+    cand["verified"] = [vmap.get(n, "") for n in cand.name]
+    cand["pos_url"] = [umap.get(n, "") for n in cand.name]
     cand["where"] = cand.role.map(lambda r: "해외" if "abroad" in r else ("국내" if "KR" in r else "미상"))
     bf = B.BF(start=y0, end=y1, next_tier=nt)
     pf = B.person_field_counts(c, list(cand.name), bf)
@@ -76,12 +77,12 @@ def _compute(y0: int, y1: int, amin: int, amax: int, nt: bool, min_p: int, tv: f
         d["kr_pct"] = [max(1, round(100 * (kp >= n).mean())) if len(kp) else None for n in d.field]
         out[k] = d
     c.close()
-    return cand, out
+    return cand, out, krp
 
 
 from fp import topvenues  # noqa: E402
 
-cand, per_all = _compute(y0, y1, amin, amax, nt, int(min_p), topvenues.version())
+cand, per_all, krp_all = _compute(y0, y1, amin, amax, nt, int(min_p), topvenues.version())
 cand = cand[cand.type.isin(types)]
 if loc != "전체":
     cand = cand[cand["where"] == loc]
@@ -107,7 +108,7 @@ ui.kpis([
     ("포닥 (추정)", f"{int((cand.type == age.POSTDOC).sum())}명", None),
     ("박사과정 (추정)", f"{int((cand.type == age.STUDENT).sum())}명", None),
 ])
-tabs = st.tabs(["요약"] + [f"{k}" for k in per_field])
+tabs = st.tabs(["요약", "🔎 이름으로 찾기"] + [f"{k}" for k in per_field])
 with tabs[0]:
     st.dataframe(ov, hide_index=True, width="stretch", column_config={
         "field": "분야", "n": st.column_config.NumberColumn("후보 (주 분야)", format="%d명"),
@@ -116,7 +117,102 @@ with tabs[0]:
     st.caption("한 사람이 여러 분야에 논문이 있으면 각 분야에 모두 나옵니다 ('주 분야' 열로 구분). 분야 탭에서 이름을 누르면 "
                "논문 목록·피인용·나이 근거가 열립니다.")
 
-for t, (k, d) in zip(tabs[1:], per_field.items()):
+
+
+def _norm(x: str) -> str:
+    import re
+
+    return re.sub(r"[^a-z]", "", re.sub(r"\s+\d{4}$", "", x.lower()))
+
+
+def _search(q: str) -> pd.DataFrame:
+    """DBLP people whose name (without the DBLP homonym number) contains the query, ignoring case/space/hyphen.
+    One row per DBLP person: same base name with different numbers = different people (homonyms)."""
+    return c.execute(
+        r"""WITH m AS (SELECT DISTINCT name FROM author_pub
+                      WHERE regexp_replace(lower(regexp_replace(name, '\s+\d{4}$', '')), '[^a-z]', '', 'g')
+                            LIKE '%' || ? || '%'),
+           pub AS (SELECT a.name, min(a.year) AS y0, max(a.year) AS y1, sum(a.count) AS papers_all
+                   FROM author_pub a JOIN venue v USING (venue) WHERE a.name IN (SELECT name FROM m)
+                   GROUP BY 1),
+           last AS (SELECT name, arg_max(p.title || ' (' || p.venue || ' ' || p.year || ')', p.year) AS last_paper
+                    FROM dblp_authorship a JOIN dblp_paper p USING (key) WHERE a.name IN (SELECT name FROM m)
+                    GROUP BY 1)
+           SELECT m.name, regexp_replace(m.name, '\s+\d{4}$', '') AS base, r.role, r.is_korean,
+                  coalesce(r.affiliation, s.pos_inst, r.affil_raw) AS affiliation, r.affil_year,
+                  s.stage, s.stage_source, s.pos_title, pa.academic_age, pub.y0, pub.y1, pub.papers_all, last.last_paper
+           FROM m LEFT JOIN pub USING (name) LEFT JOIN last USING (name)
+           LEFT JOIN person_role r ON r.person = m.name LEFT JOIN person_stage s ON s.person = m.name
+           LEFT JOIN person_age pa ON pa.person = m.name
+           ORDER BY pub.papers_all DESC NULLS LAST LIMIT 40""",
+        [_norm(q)],
+    ).df()
+
+
+with tabs[1]:
+    st.caption("이름으로 찾아 동명이인을 구분하고, 지금 위 조건(기간·학회·유형)에서 분야별로 몇 등인지 보여줍니다. "
+               "DBLP는 동명이인을 'Name 0001', 'Name 0002'처럼 번호로 나눕니다 — 같은 이름이 여러 줄이면 소속·활동 "
+               "연도·최근 논문으로 구분하세요.")
+    q = st.text_input("이름 (영문, 예: Hwanjun Song)", key="rc_q")
+    if q and len(_norm(q)) >= 3:
+        m = _search(q)
+        if m.empty:
+            st.info("DBLP top 학회 논문 저자 중 그 이름이 없습니다.")
+        else:
+            m["key"] = m.base.map(_norm)  # "Jinwoo Shin" / "Jin Woo Shin" / "Jinwoo Shin 0002" → same name
+            m["homonyms"] = m.groupby("key").name.transform("count")
+            m["who"] = [("국내 교수" if r == "KR faculty" else "해외 교수" if r == "faculty abroad" else (s or "미상"))
+                        + (f" — {t}" if src == "web" and t else "")
+                        for r, s, src, t in zip(m.role, m.stage, m.stage_source, m.pos_title)]
+            m["korean"] = m.is_korean.map({True: "예", False: "아니오"}).fillna("미상")
+            m["active"] = [f"{int(a)}–{int(b)}" if pd.notna(a) else "" for a, b in zip(m.y0, m.y1)]
+            dup = m[m.homonyms > 1].groupby("key").name.apply(list)
+            if len(dup):
+                st.warning("동명이인(또는 표기만 다른 이름) 있음: "
+                           + "; ".join(" / ".join(f"**{n}**" for n in v) for v in dup)
+                           + " — 아래 표에서 소속·활동 연도·최근 논문으로 구분하세요.")
+            st.dataframe(
+                m[["name", "homonyms", "who", "affiliation", "korean", "academic_age", "active", "papers_all",
+                   "last_paper"]],
+                hide_index=True, width="stretch", height=min(400, 36 * len(m) + 40), column_config={
+                    "name": "DBLP 이름", "homonyms": st.column_config.NumberColumn("같은 이름", format="%d명"),
+                    "who": "구분", "affiliation": "소속", "korean": "한국인", "academic_age": "학문적 나이 (추정)",
+                    "active": "활동 연도", "papers_all": st.column_config.NumberColumn("top 논문 (전체 기간)"),
+                    "last_paper": st.column_config.TextColumn("최근 논문", width="large")})
+            who = st.selectbox("순위를 볼 사람", list(m.name), key="rc_q_pick",
+                               format_func=lambda n: f"{n} — {m.set_index('name').affiliation.get(n) or '소속 미상'}")
+            pf = B.person_field_counts(c, [who], B.BF(start=y0, end=y1, next_tier=nt))
+            if pf.empty:
+                st.info(f"{y0}–{y1}에 선택한 학회 논문이 없습니다. 위에서 기간을 넓혀 보세요.")
+            else:
+                rows = []
+                for _, r in pf.sort_values("papers", ascending=False).iterrows():
+                    k, x = r.field, int(r.papers)
+                    d = per_field.get(k)
+                    kp = krp_all[krp_all.field == k].papers
+                    in_pool = d is not None and who in set(d.name)
+                    pool = d[d.name != who] if d is not None else None
+                    rows.append({
+                        "field": f"{k} · {B.FIELDS[k][0]}" if k in B.FIELDS else k, "papers": x,
+                        "cand_rank": (f"{1 + int((pool.field > x).sum())}위 / {len(pool) + 1}명"
+                                      if pool is not None else "후보 없음"),
+                        "in_pool": "포함" if in_pool else "아님",
+                        "kr_rank": f"{1 + int((kp > x).sum())}위 / {len(kp)}명" if len(kp) else "",
+                        "kr_pct": max(1, round(100 * (kp >= x).mean())) if len(kp) else None,
+                    })
+                st.markdown(f"**{who}** — {y0}–{y1} 분야별 순위 ({'확장 학회 포함' if nt else 'top 학회만'})")
+                st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch", column_config={
+                    "field": "분야", "papers": st.column_config.NumberColumn("논문", format="%d편"),
+                    "cand_rank": st.column_config.TextColumn(
+                        "초빙 후보 중 순위", help="지금 조건(유형·학문적 나이·위치·최소 논문)의 후보들 사이에 넣었을 때"),
+                    "in_pool": st.column_config.TextColumn(
+                        "후보 목록에 있음", help="'아님' = 국내 교수이거나, 나이·유형·위치·최소 논문 조건 밖"),
+                    "kr_rank": st.column_config.TextColumn("국내 교수 중 순위", help="같은 분야·기간 국내 교수 논문 수 기준"),
+                    "kr_pct": st.column_config.NumberColumn("국내 교수 대비", format="상위 %d%%")})
+                ui.person_card(who, B.BF(start=y0, end=y1, next_tier=nt), key="rc_q_card")
+    elif q:
+        st.caption("3글자 이상 입력하세요.")
+for t, (k, d) in zip(tabs[2:], per_field.items()):
     with t:
         st.markdown(f"**{k} · {B.FIELDS[k][0]}**")
         q1, q2 = st.columns([3, 1.4])
