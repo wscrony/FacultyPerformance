@@ -162,13 +162,14 @@ with tab_search:
                  "world": "전 세계 교수"}
     scope = st.radio("검색 범위", list(scope_lbl), format_func=scope_lbl.get, horizontal=True, key="scope", index=1,
                      help="포닥·학생 등 교수가 아닌 사람은 '한국인 연구자 전체'에서 나옵니다 (한국인으로 분류된 사람만 추적).")
-    STAGES = ["국내 교수", "해외 교수", age.STUDENT, age.POSTDOC, age.SENIOR, age.INDUSTRY, age.UNKNOWN]
+    STAGES = ["국내 교수", "해외 교수", age.KR_PROF, age.ABROAD_PROF, age.STUDENT, age.POSTDOC, age.SENIOR, age.INDUSTRY,
+              age.UNKNOWN]
     roles, loc = None, "전체"
     if scope == "korean":
         r1, r2 = st.columns([4, 2])
         roles = r1.multiselect(
             "구분", STAGES, key="roles",
-            help="교수 = CSrankings 명단. 그 외는 최근 논문 소속(OpenAlex)의 기관 유형과 학문적 나이로 추정: "
+            help="교수 = CSrankings 명단. 명단 외 인물은 웹 검색(LLM)으로 현재 직위를 확인했으면 그 결과(명단 외 교수 포함), 아니면 최근 논문 소속(OpenAlex)의 기관 유형과 학문적 나이로 추정: "
                  f"기업 소속 = 산업체. 박사 연도를 알면 박사 전 = 박사과정, 박사 후 0–{age.POSTDOC_MAX_ACAD_AGE}년 = 포닥. "
                  f"모르면 첫 top 논문 후 {age.STUDENT_MAX_YEARS}년 이내 = 박사과정, {age.POSTDOC_MAX_YEARS}년 이내 = 포닥. "
                  "그 이후 = 연구원·명단 외 교수(명예교수·산업체 겸직 등). 추정이라 경계 부근은 틀릴 수 있습니다.")

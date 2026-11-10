@@ -363,7 +363,8 @@ def _person_card(c, name: str, mf, f, key: str) -> None:
 
     age.create_views(c)
     pa = c.execute("""SELECT a.affiliation, a.phd_year, a.phd_institution, a.age_source, a.academic_age,
-                             a.birth_year, a.birth_source, a.first_top_year, r.role, s.stage
+                             a.birth_year, a.birth_source, a.first_top_year, r.role, s.stage,
+                             s.stage_source, s.pos_title, s.pos_inst, s.pos_since, s.pos_url
                       FROM person_age a LEFT JOIN person_role r USING (person)
                       LEFT JOIN person_stage s USING (person) WHERE a.person = ?""", [name]).df()
     pp = age.person_papers(c, name, mf)
@@ -376,12 +377,17 @@ def _person_card(c, name: str, mf, f, key: str) -> None:
         lk = links.person_links(c, name)
         if lk:
             st.markdown(" · ".join(f"[{k}{' (검색)' if kind == 'search' else ''}]({u})" for k, (u, kind) in lk.items()))
+        if p is not None and p.stage_source == "web":
+            pos = " · ".join(str(x) for x in (p.pos_title, p.pos_inst) if pd.notna(x) and x)
+            since = f" ({int(p.pos_since)}~)" if pd.notna(p.pos_since) else ""
+            src = f" — [근거]({p.pos_url})" if pd.notna(p.pos_url) and p.pos_url else ""
+            st.caption(f"현재 직위 (웹 검색 확인): {pos}{since}{src}")
         tot = int(pp.cites.fillna(0).sum())
         if p is not None:
             est_b = str(p.birth_source or "est").startswith("est")
             est_a = str(p.age_source or "est").startswith("est")
             kp = [
-                ("소속", p.affiliation or "-", role or None),
+                ("소속", p.affiliation or (p.pos_inst if p.stage_source == "web" else None) or "-", role or None),
                 ("나이" + (" (추정·부정확)" if est_b else ""), f"{THIS_YEAR - int(p.birth_year)}세" if pd.notna(p.birth_year)
                  else "-", f"출생 {int(p.birth_year)} · 출처 {p.birth_source}" if pd.notna(p.birth_year) else None),
                 ("학문적 나이" + (" (추정)" if est_a else ""), f"{int(p.academic_age)}년" if pd.notna(p.academic_age)

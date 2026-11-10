@@ -409,6 +409,21 @@ def update_departments(model: str = "opus", force: bool = False):
         typer.echo(llm_dept.update(con, model=model, force=force, progress=cb))
 
 
+@update_app.command("positions")
+def update_positions(model: str = "sonnet", limit: Optional[int] = typer.Option(None), workers: int = 4,
+                     store_only: bool = typer.Option(False, help="only load data/snapshots/positions.jsonl")):
+    """Current position of non-faculty Korean researchers (claude CLI + web search; pii.position)."""
+    from fp import pii
+    from fp.ingest import llm_position
+
+    con = pii.connect()
+    if store_only:
+        typer.echo(llm_position.store(con))
+        return
+    with _progress("positions", every=25) as cb:
+        typer.echo(llm_position.update(con, model=model, limit=limit, workers=workers, progress=cb))
+
+
 @update_app.command("title-citations")
 def update_title_citations(force: bool = typer.Option(False), limit: Optional[int] = typer.Option(None)):
     """Citations for papers without a DOI (NeurIPS/ICLR/...), by exact title match on OpenAlex."""

@@ -163,24 +163,32 @@ def create_views(con, this_year: int | None = None) -> None:
 
 STUDENT, POSTDOC, SENIOR, INDUSTRY, UNKNOWN = ("박사과정 (추정)", "포닥 (추정)", "연구원·명단 외 교수 (추정)",
                                                "산업체", "미상")
+KR_PROF, ABROAD_PROF = "국내 교수 (명단 외)", "해외 교수 (명단 외)"  # web-verified, not on CSrankings
 POSTDOC_MAX_ACAD_AGE = 6
 STUDENT_MAX_YEARS, POSTDOC_MAX_YEARS = 4, 9  # years since first top paper, when the PhD year is unknown
 
 
 def _create_stage_view(con, y: int) -> None:
-    """Career stage for people not on the CSrankings faculty list: institution type of the latest affiliation
-    (OpenAlex) + academic age. Heuristic — always labelled (추정) except industry."""
+    """Career stage for people not on the CSrankings faculty list. Web-verified current position (pii.position,
+    `fp update positions`) when its confidence is >= MIN_CONF; otherwise a heuristic from the institution type of
+    the latest affiliation (OpenAlex) + academic age, labelled (추정)."""
+    from fp.ingest.llm_position import MIN_CONF
+
     if _has_table(con, "oa_inst_type"):
         typ = """(SELECT a.person, any_value(t.type) AS inst_type FROM cur_affil a
                    JOIN pii.affiliation x ON x.person = a.person AND x.institution = a.institution
                    JOIN oa_inst_type t ON t.ror = x.ror GROUP BY 1)"""
     else:
         typ = "(SELECT NULL::VARCHAR AS person, NULL::VARCHAR AS inst_type WHERE FALSE)"
-    con.execute(
-        f"""
-        CREATE OR REPLACE TEMP VIEW person_stage AS
-        SELECT r.person, t.inst_type,
-               CASE WHEN r.role IN ('KR faculty', 'faculty abroad') THEN NULL
+    have_pos = con.execute("SELECT count(*) FROM duckdb_tables() WHERE database_name = 'pii' AND table_name = 'position'"
+                           ).fetchone()[0]
+    if have_pos:
+        pos = f"""(SELECT * FROM pii.position WHERE confidence >= {MIN_CONF} AND position <> 'unknown')"""
+    else:
+        pos = """(SELECT NULL::VARCHAR AS person, NULL::VARCHAR AS position, NULL::VARCHAR AS title,
+                  NULL::VARCHAR AS institution, NULL::VARCHAR AS country, NULL::INTEGER AS since_year,
+                  NULL::VARCHAR AS evidence_url WHERE FALSE)"""
+    heur = f"""CASE WHEN r.role IN ('KR faculty', 'faculty abroad') THEN NULL
                     WHEN t.inst_type = 'company' THEN '{INDUSTRY}'
                     -- PhD year known (orcid/homepage/manual/llm): academic age decides
                     WHEN pa.phd_year IS NOT NULL AND {y} < pa.phd_year THEN '{STUDENT}'
@@ -190,9 +198,26 @@ def _create_stage_view(con, y: int) -> None:
                     WHEN pa.first_top_year IS NULL THEN '{UNKNOWN}'
                     WHEN {y} - pa.first_top_year <= {STUDENT_MAX_YEARS} THEN '{STUDENT}'
                     WHEN {y} - pa.first_top_year <= {POSTDOC_MAX_YEARS} THEN '{POSTDOC}'
-                    ELSE '{SENIOR}' END AS stage
+                    ELSE '{SENIOR}' END"""
+    con.execute(
+        f"""
+        CREATE OR REPLACE TEMP VIEW person_stage AS
+        SELECT r.person, t.inst_type,
+               CASE WHEN r.role IN ('KR faculty', 'faculty abroad') THEN NULL
+                    WHEN v.position = 'professor' AND v.country = 'kr' THEN '{KR_PROF}'
+                    WHEN v.position = 'professor' THEN '{ABROAD_PROF}'
+                    WHEN v.position = 'postdoc' THEN '{POSTDOC}'
+                    WHEN v.position IN ('phd_student', 'ms_student') THEN '{STUDENT}'
+                    WHEN v.position = 'industry' THEN '{INDUSTRY}'
+                    WHEN v.position = 'research_institute' THEN '{SENIOR}'
+                    ELSE {heur} END AS stage,
+               {heur} AS stage_heur,
+               CASE WHEN v.person IS NOT NULL AND r.role NOT IN ('KR faculty', 'faculty abroad') THEN 'web'
+                    ELSE 'heuristic' END AS stage_source,
+               v.title AS pos_title, v.institution AS pos_inst, v.since_year AS pos_since, v.evidence_url AS pos_url
         FROM person_role r LEFT JOIN {typ} t ON t.person = r.person
         LEFT JOIN person_age pa ON pa.person = r.person
+        LEFT JOIN {pos} v ON v.person = r.person
         """
     )
 

@@ -16,12 +16,13 @@ st.caption("국내 대학 교수(CSrankings 명단)가 아닌 한국인 연구�
            "분야별로 최근 실적 순으로 보여줍니다. 한국인 여부·경력 단계·나이는 모두 추정입니다.")
 ui.top_venue_status()
 
-TYPES = ["해외 교수", age.POSTDOC, age.STUDENT, age.INDUSTRY, age.SENIOR, "미상"]
+TYPES = ["해외 교수", age.POSTDOC, age.STUDENT, age.INDUSTRY, age.SENIOR, age.KR_PROF, "미상"]
 a1, a2, a3 = st.columns([2.2, 2.2, 3])
 y0, y1 = a1.slider("실적 기간", 2000, Y, (Y - 4, Y), key="rc_years", help="기본: 최근 5년")
 amin, amax = a2.slider("학문적 나이 (PhD 후 연차)", -6, 30, (-2, 10), key="rc_age",
                        help="음수 = 아직 PhD 전 (박사과정). 기본 −2~10: 졸업 임박 박사과정 ~ 조교수급")
-types = a3.multiselect("후보 유형", TYPES, default=[t for t in TYPES if t != age.SENIOR and t != "미상"], key="rc_types")
+types = a3.multiselect("후보 유형", TYPES, default=[t for t in TYPES if t not in (age.SENIOR, age.KR_PROF, "미상")],
+                       key="rc_types", help=f"{age.KR_PROF} = CSrankings 명단에는 없지만 웹 확인 결과 이미 국내 대학 교수인 사람")
 b1, b2, b3, b4 = st.columns([1.6, 1.6, 2.2, 1.6])
 min_p = b1.number_input("분야 논문 최소", 1, 50, 3, key="rc_min")
 loc = b2.radio("현재 위치", ["전체", "해외", "국내"], horizontal=True, key="rc_loc")
@@ -41,9 +42,16 @@ def _compute(y0: int, y1: int, amin: int, amax: int, nt: bool, min_p: int, tv: f
     rows, cols = _age.candidates(c, F, age_min=amin, age_max=amax, scope="korean", limit=None)
     cand = pd.DataFrame(rows, columns=cols)
     cand = cand[cand.role != "KR faculty"]
-    stage = c.execute("SELECT person, stage FROM person_stage").df().set_index("person").stage
-    cand["type"] = ["해외 교수" if r == "faculty abroad" else (stage.get(n) or "미상")
+    st_ = c.execute("SELECT person, stage, stage_source, pos_title, pos_inst, pos_since, pos_url FROM person_stage"
+                    ).df().set_index("person")
+    stage = st_.stage
+    cand["type"] = ["해외 교수" if r == "faculty abroad" or stage.get(n) == _age.ABROAD_PROF else (stage.get(n) or "미상")
                     for n, r in zip(cand.name, cand.role)]
+    web = st_[st_.stage_source == "web"]
+    cand["verified"] = cand.name.map(
+        {n: " · ".join(str(x) for x in (r.pos_title, r.pos_inst) if pd.notna(x) and x)
+            + (f" ({int(r.pos_since)}~)" if pd.notna(r.pos_since) else "") for n, r in web.iterrows()}).fillna("")
+    cand["pos_url"] = cand.name.map(web.pos_url.dropna()).fillna("")
     cand["where"] = cand.role.map(lambda r: "해외" if "abroad" in r else ("국내" if "KR" in r else "미상"))
     bf = B.BF(start=y0, end=y1, next_tier=nt)
     pf = B.person_field_counts(c, list(cand.name), bf)
@@ -119,15 +127,18 @@ for t, (k, d) in zip(tabs[1:], per_field.items()):
         if only_main:
             d = d[d["main"] == k]
         st.caption(f"후보 {len(d)}명")
-        show = d[["name", "type", "institution", "main", "acad_age", "field", "recent", "per_year", "first", "cites",
-                  "kr_equiv", "kr_pct", "cohort_pctl"]].copy()
+        show = d[["name", "type", "verified", "pos_url", "institution", "main", "acad_age", "field", "recent", "per_year",
+                  "first", "cites", "kr_equiv", "kr_pct", "cohort_pctl"]].copy()
         show.insert(0, "no", range(1, len(show) + 1))
         mx = int(show.field.max() or 1)
         ui.people_table(
             ui.add_age(show, after="acad_age"), f"rc_tab_{k}", B.BF(start=y0, end=y1, next_tier=nt, fields=[k]),
             height=min(620, 36 * len(show) + 40),
             column_config={
-                "no": st.column_config.NumberColumn("#", width="small"), "type": "유형 (추정)",
+                "no": st.column_config.NumberColumn("#", width="small"), "type": "유형",
+                "verified": st.column_config.TextColumn("현재 직위 (웹 확인)", width="medium",
+                                                        help="웹 검색으로 확인한 현재 직위. 비어 있으면 확인 못 해 추정"),
+                "pos_url": st.column_config.LinkColumn("근거", display_text="↗", width="small"),
                 "institution": "현재 소속", "main": "주 분야", "acad_age": "학문적 나이",
                 "field": st.column_config.ProgressColumn(f"{k} 논문 {y0}–{y1}", format="%d", min_value=0,
                                                          max_value=mx),
@@ -146,5 +157,6 @@ for t, (k, d) in zip(tabs[1:], per_field.items()):
         )
         st.download_button("CSV 다운로드", show.to_csv(index=False), f"recruit_{k}_{y0}-{y1}.csv",
                            key=f"rc_csv_{k}")
-st.caption("유형·한국인 여부·나이는 공개 데이터(CSrankings·DBLP·OpenAlex·ORCID·홈페이지)와 LLM 지식으로 추정한 값이라 "
+st.caption("유형은 웹 검색(LLM)으로 현재 직위를 확인한 경우 그 결과를, 아니면 최근 논문 소속과 학문적 나이로 추정한 값을 "
+           "씁니다. 유형·한국인 여부·나이는 공개 데이터(CSrankings·DBLP·OpenAlex·ORCID·홈페이지)와 LLM 지식으로 추정한 값이라 "
            "틀릴 수 있습니다. 초빙 판단 전 본인 이력서로 확인하세요.")
