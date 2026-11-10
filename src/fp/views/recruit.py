@@ -179,8 +179,12 @@ with tabs[1]:
                     "who": "구분", "affiliation": "소속", "korean": "한국인", "academic_age": "학문적 나이 (추정)",
                     "active": "활동 연도", "papers_all": st.column_config.NumberColumn("top 논문 (전체 기간)"),
                     "last_paper": st.column_config.TextColumn("최근 논문", width="large")})
-            who = st.selectbox("순위를 볼 사람", list(m.name), key="rc_q_pick",
+            w1, w2 = st.columns([4, 1])
+            who = w1.selectbox("순위를 볼 사람", list(m.name), key="rc_q_pick",
                                format_func=lambda n: f"{n} — {m.set_index('name').affiliation.get(n) or '소속 미상'}")
+            win = int(w2.number_input("동년차 범위 ±", 1, 10, 3, key="rc_q_win", help="학문적 나이 차이가 이 안인 사람끼리 비교"))
+            my_age = m.set_index("name").academic_age.get(who)
+            ages = dict(c.execute("SELECT person, academic_age FROM person_age WHERE academic_age IS NOT NULL").fetchall())
             pf = B.person_field_counts(c, [who], B.BF(start=y0, end=y1, next_tier=nt))
             if pf.empty:
                 st.info(f"{y0}–{y1}에 선택한 학회 논문이 없습니다. 위에서 기간을 넓혀 보세요.")
@@ -192,6 +196,16 @@ with tabs[1]:
                     kp = krp_all[krp_all.field == k].papers
                     in_pool = d is not None and who in set(d.name)
                     pool = d[d.name != who] if d is not None else None
+                    if pd.notna(my_age):
+                        kc = [p_ for n_, p_ in zip(krp_all[krp_all.field == k].name, kp)
+                              if n_ != who and n_ in ages and abs(ages[n_] - my_age) <= win]
+                        cc = pool[(pool.acad_age - my_age).abs() <= win] if pool is not None else None
+                        kc_rank = f"{1 + sum(p_ > x for p_ in kc)}위 / {len(kc) + 1}명"
+                        kc_pct = max(1, round(100 * (1 + sum(p_ >= x for p_ in kc)) / (len(kc) + 1)))
+                        cc_rank = f"{1 + int((cc.field > x).sum())}위 / {len(cc) + 1}명" if cc is not None else "후보 없음"
+                    else:
+                        kc_rank = cc_rank = "나이 미상"
+                        kc_pct = None
                     rows.append({
                         "field": f"{k} · {B.FIELDS[k][0]}" if k in B.FIELDS else k, "papers": x,
                         "cand_rank": (f"{1 + int((pool.field > x).sum())}위 / {len(pool) + 1}명"
@@ -199,8 +213,11 @@ with tabs[1]:
                         "in_pool": "포함" if in_pool else "아님",
                         "kr_rank": f"{1 + int((kp > x).sum())}위 / {len(kp)}명" if len(kp) else "",
                         "kr_pct": max(1, round(100 * (kp >= x).mean())) if len(kp) else None,
+                        "cc_rank": cc_rank, "kc_rank": kc_rank, "kc_pct": kc_pct,
                     })
-                st.markdown(f"**{who}** — {y0}–{y1} 분야별 순위 ({'확장 학회 포함' if nt else 'top 학회만'})")
+                st.markdown(f"**{who}** — {y0}–{y1} 분야별 순위 ({'확장 학회 포함' if nt else 'top 학회만'})"
+                            + (f" · 학문적 나이 {int(my_age)}년 (추정) → 동년차 = {int(my_age) - win}~{int(my_age) + win}년"
+                               if pd.notna(my_age) else " · 학문적 나이 미상 (동년차 비교 불가)"))
                 st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch", column_config={
                     "field": "분야", "papers": st.column_config.NumberColumn("논문", format="%d편"),
                     "cand_rank": st.column_config.TextColumn(
@@ -208,7 +225,12 @@ with tabs[1]:
                     "in_pool": st.column_config.TextColumn(
                         "후보 목록에 있음", help="'아님' = 국내 교수이거나, 나이·유형·위치·최소 논문 조건 밖"),
                     "kr_rank": st.column_config.TextColumn("국내 교수 중 순위", help="같은 분야·기간 국내 교수 논문 수 기준"),
-                    "kr_pct": st.column_config.NumberColumn("국내 교수 대비", format="상위 %d%%")})
+                    "kr_pct": st.column_config.NumberColumn("국내 교수 대비", format="상위 %d%%"),
+                    "cc_rank": st.column_config.TextColumn(f"동년차(±{win}) 후보 중",
+                                                           help="학문적 나이가 비슷한 초빙 후보 사이 순위"),
+                    "kc_rank": st.column_config.TextColumn(f"동년차(±{win}) 국내 교수 중",
+                                                           help="학문적 나이가 비슷한 국내 교수 사이 순위 (그 분야 논문 1편 이상인 교수)"),
+                    "kc_pct": st.column_config.NumberColumn(f"동년차 국내 교수 대비", format="상위 %d%%")})
                 ui.person_card(who, B.BF(start=y0, end=y1, next_tier=nt), key="rc_q_card")
     elif q:
         st.caption("3글자 이상 입력하세요.")
