@@ -452,26 +452,30 @@ def set_position(person: str, position: str = typer.Option(..., help="professor/
 
 
 @update_app.command("title-citations")
-def update_title_citations(force: bool = typer.Option(False), limit: Optional[int] = typer.Option(None)):
+def update_title_citations(force: bool = typer.Option(False), limit: Optional[int] = typer.Option(None),
+                           institution: Optional[list[str]] = typer.Option(
+                               None, help="only papers of these CSrankings institutions (repeatable)")):
     """Citations for papers without a DOI (NeurIPS/ICLR/...), by exact title match on OpenAlex."""
     from fp import pii
     from fp.ingest import citations
 
     con = pii.connect()
     with _progress("OpenAlex title citations") as cb:
-        stats = citations.update_titles(con, force=force, limit=limit, progress=cb)
+        stats = citations.update_titles(con, force=force, limit=limit, progress=cb, institutions=institution or None)
     typer.echo(stats)
 
 
 @update_app.command("citations")
-def update_citations(force: bool = typer.Option(False), limit: Optional[int] = typer.Option(None, help="max DOIs")):
+def update_citations(force: bool = typer.Option(False), limit: Optional[int] = typer.Option(None, help="max DOIs"),
+                     institution: Optional[list[str]] = typer.Option(
+                         None, help="only papers of these CSrankings institutions (repeatable)")):
     """Citation counts (OpenAlex, 100 DOIs/request) for top-venue papers of tracked people."""
     from fp import pii
     from fp.ingest import citations
 
     con = pii.connect()
     with _progress("OpenAlex citations") as cb:
-        stats = citations.update(con, force=force, limit=limit, progress=cb)
+        stats = citations.update(con, force=force, limit=limit, progress=cb, institutions=institution or None)
     console.print(stats)
 
 

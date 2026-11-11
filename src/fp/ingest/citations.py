@@ -78,14 +78,22 @@ def fetch_chunk(dois: list[str], sess: requests.Session, key: str | None) -> dic
     raise RuntimeError(f"OpenAlex list request failed ({r.status_code})")
 
 
-def targets(con, force: bool = False) -> list[str]:
-    """DOIs of all top-venue papers by tracked people (KR faculty + Korean pool)."""
+def _people_sql(institutions: list[str] | None) -> str:
+    """Tracked people (KR faculty + Korean pool), or — for the university benchmark — all CSrankings faculty of the
+    given institutions."""
+    if institutions:
+        names = ", ".join("'" + i.replace("'", "''") + "'" for i in institutions)
+        return f"SELECT name AS person FROM cs_faculty WHERE affiliation IN ({names})"
+    return """SELECT f.name AS person FROM cs_faculty f JOIN institution i ON i.institution = f.affiliation
+            WHERE i.country = 'kr'
+            UNION SELECT person FROM pii.korean WHERE is_korean"""
+
+
+def targets(con, force: bool = False, institutions: list[str] | None = None) -> list[str]:
+    """DOIs of all top-venue papers by tracked people (KR faculty + Korean pool) or by the given institutions."""
     return [r[0] for r in con.execute(
         f"""
-        WITH people AS (
-            SELECT f.name AS person FROM cs_faculty f JOIN institution i ON i.institution = f.affiliation
-            WHERE i.country = 'kr'
-            UNION SELECT person FROM pii.korean WHERE is_korean)
+        WITH people AS ({_people_sql(institutions)})
         SELECT DISTINCT p.doi FROM dblp_authorship a JOIN dblp_paper p USING (key)
         WHERE p.doi IS NOT NULL AND a.name IN (SELECT person FROM people)
           AND (? OR p.doi NOT IN (SELECT doi FROM oa_cites
@@ -102,9 +110,10 @@ def update(
     limit: int | None = None,
     fetch: Callable[[list[str], requests.Session, str | None], dict[str, int]] = fetch_chunk,
     progress: Callable[[int, int], None] | None = None,
+    institutions: list[str] | None = None,
 ) -> dict:
     con.execute(SCHEMA)
-    dois = targets(con, force)
+    dois = targets(con, force, institutions)
     if limit:
         dois = dois[:limit]
     key = api_key()
@@ -187,13 +196,10 @@ def fetch_title(title: str, year: int | None, sess: requests.Session, key: str |
     raise RuntimeError(f"OpenAlex title search failed ({r.status_code})")
 
 
-def title_targets(con, force: bool = False) -> list[tuple[str, str, int]]:
+def title_targets(con, force: bool = False, institutions: list[str] | None = None) -> list[tuple[str, str, int]]:
     return con.execute(
         f"""
-        WITH people AS (
-            SELECT f.name AS person FROM cs_faculty f JOIN institution i ON i.institution = f.affiliation
-            WHERE i.country = 'kr'
-            UNION SELECT person FROM pii.korean WHERE is_korean)
+        WITH people AS ({_people_sql(institutions)})
         SELECT DISTINCT p.key, p.title, p.year FROM dblp_authorship a JOIN dblp_paper p USING (key)
         WHERE p.doi IS NULL AND p.title IS NOT NULL AND a.name IN (SELECT person FROM people)
           AND (? OR p.key NOT IN (SELECT key FROM oa_title_cites
@@ -204,10 +210,11 @@ def title_targets(con, force: bool = False) -> list[tuple[str, str, int]]:
     ).fetchall()
 
 
-def update_titles(con, force: bool = False, limit: int | None = None, fetch=None, progress=None) -> dict:
+def update_titles(con, force: bool = False, limit: int | None = None, fetch=None, progress=None,
+                  institutions: list[str] | None = None) -> dict:
     """fetch: batched `fetch_titles` by default; a single-title function (title, year, sess, key) also works."""
     con.execute(TITLE_SCHEMA)
-    rows = title_targets(con, force)
+    rows = title_targets(con, force, institutions)
     rows = rows[:limit] if limit else rows
     key = api_key()
     sess = requests.Session()
