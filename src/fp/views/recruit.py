@@ -186,7 +186,7 @@ with tabs[1]:
             if "kname" not in m.columns:
                 m["kname"] = ""
             st.dataframe(
-                m[["name", "kname", "homonyms", "who", "affiliation", "korean", "academic_age", "active", "papers_all",
+                m[["kname", "name", "homonyms", "who", "affiliation", "korean", "academic_age", "active", "papers_all",
                    "last_paper"]],
                 hide_index=True, width="stretch", height=min(400, 36 * len(m) + 40), column_config={
                     "name": "DBLP 이름", "kname": ui.KNAME_COL, "homonyms": st.column_config.NumberColumn("같은 이름", format="%d명"),
@@ -195,7 +195,7 @@ with tabs[1]:
                     "last_paper": st.column_config.TextColumn("최근 논문", width="large")})
             w1, w2 = st.columns([4, 1])
             who = w1.selectbox("순위를 볼 사람", list(m.name), key="rc_q_pick",
-                               format_func=lambda n: f"{n}{' (' + ui.korean_name(n) + ')' if ui.korean_name(n) else ''} — "
+                               format_func=lambda n: f"{ui.disp(n)} — "
                                                      f"{_txt(m.set_index('name').affiliation.get(n)) or '소속 미상'}")
             win = int(w2.number_input("동년차 범위 ±", 1, 10, 3, key="rc_q_win", help="학문적 나이 차이가 이 안인 사람끼리 비교"))
             my_age = m.set_index("name").academic_age.get(who)
@@ -230,7 +230,7 @@ with tabs[1]:
                         "kr_pct": max(1, round(100 * (kp >= x).mean())) if len(kp) else None,
                         "cc_rank": cc_rank, "kc_rank": kc_rank, "kc_pct": kc_pct,
                     })
-                st.markdown(f"**{who}** — {y0}–{y1} 분야별 순위 ({'확장 학회 포함' if nt else 'top 학회만'})"
+                st.markdown(f"**{ui.disp(who)}** — {y0}–{y1} 분야별 순위 ({'확장 학회 포함' if nt else 'top 학회만'})"
                             + (f" · 학문적 나이 {int(my_age)}년 (추정) → 동년차 = {int(my_age) - win}~{int(my_age) + win}년"
                                if pd.notna(my_age) else " · 학문적 나이 미상 (동년차 비교 불가)"))
                 st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch", column_config={
@@ -247,7 +247,7 @@ with tabs[1]:
                                                            help="학문적 나이가 비슷한 국내 교수 사이 순위 (그 분야 논문 1편 이상인 교수)"),
                     "kc_pct": st.column_config.NumberColumn(f"동년차 국내 교수 대비", format="상위 %d%%")})
                 if pd.notna(my_age):
-                    st.markdown(f"**동년차(학문적 나이 {int(my_age) - win}~{int(my_age) + win}년) 중 {who}보다 잘하는 사람**")
+                    st.markdown(f"**동년차(학문적 나이 {int(my_age) - win}~{int(my_age) + win}년) 중 {ui.disp(who)}보다 잘하는 사람**")
                     flds = list(pf.sort_values("papers", ascending=False).field)
                     fk = st.selectbox("분야", flds, key="rc_q_fld",
                                       format_func=lambda k: f"{k} · {B.FIELDS[k][0]}" if k in B.FIELDS else k)
@@ -307,7 +307,7 @@ with tabs[1]:
                             "best": st.column_config.NumberColumn("최다 피인용 논문", format="localized")})
                 # the cohort list already opened this person's card when their own row was clicked
                 if st.session_state.get("_selval_rc_q_better") != who:
-                    with st.expander(f"{who} 상세 (논문 목록·피인용·나이 근거)"):
+                    with st.expander(f"{ui.disp(who)} 상세 (논문 목록·피인용·나이 근거)"):
                         ui.person_card(who, B.BF(start=y0, end=y1, next_tier=nt), key="rc_q_card")
     elif q:
         st.caption("영문 3글자 또는 한글 2글자 이상 입력하세요.")

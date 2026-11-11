@@ -154,12 +154,12 @@ fig = go.Figure()
 rest = aos[~aos.affiliation.isin(hl)]
 fig.add_scatter(x=rest.academic_age, y=rest[ym], mode="markers", name="그 외",
                 marker=dict(size=8, color=ui.gray(), opacity=0.45, line=dict(width=1, color="rgba(255,255,255,0.8)")),
-                text=rest.person + " · " + rest.affiliation, hovertemplate="%{text}<br>%{x}년 · %{y}<extra></extra>")
+                text=rest.person.map(ui.disp) + " · " + rest.affiliation, hovertemplate="%{text}<br>%{x}년 · %{y}<extra></extra>")
 for i, s in enumerate(hl):
     d = aos[aos.affiliation == s]
     fig.add_scatter(x=d.academic_age, y=d[ym], mode="markers", name=s,
                     marker=dict(size=9, color=ui.series()[i], line=dict(width=2, color="rgba(255,255,255,0.9)")),
-                    text=d.person, hovertemplate="%{text}<br>%{x}년 · %{y}<extra></extra>")
+                    text=d.person.map(ui.disp), hovertemplate="%{text}<br>%{x}년 · %{y}<extra></extra>")
 med = aos.groupby("academic_age")[ym].median().rolling(5, center=True, min_periods=2).median()
 fig.add_scatter(x=med.index, y=med.values, mode="lines", name="국내 중앙값 (5년 이동)",
                 line=dict(color=ui.gray(), width=2, dash="dot"), hovertemplate="중앙값 %{x}년: %{y:.1f}<extra></extra>")
