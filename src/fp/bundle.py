@@ -7,6 +7,7 @@ the app never shows them.
 
 from __future__ import annotations
 
+import os
 import shutil
 import tarfile
 import tempfile
@@ -63,19 +64,21 @@ def export(out_dir: Path = paths.EXPORTS / "app_bundle") -> Path:
         shutil.rmtree(tmp, ignore_errors=True)
 
 
-def ensure(url: str) -> None:
-    """Download and unpack the bundle into data/ unless it is already there (once per container)."""
+def ensure(url: str) -> bool:
+    """Download and unpack the bundle into data/ unless it is already there (once per container). True = new data
+    was unpacked (callers must drop cached connections/results)."""
     import fcntl
 
     marker = paths.DATA / ".bundle_url"
     if paths.PUBLIC_DB.exists() and marker.exists() and marker.read_text() == url:
-        return
+        return False
     paths.DATA.mkdir(parents=True, exist_ok=True)
     with open(paths.DATA / ".bundle.lock", "w") as lk:
         fcntl.flock(lk, fcntl.LOCK_EX)  # other sessions wait here, then see the marker
         if paths.PUBLIC_DB.exists() and marker.exists() and marker.read_text() == url:
-            return
+            return False
         _download(url, marker)
+        return True
 
 
 def _download(url: str, marker: Path) -> None:
@@ -87,9 +90,17 @@ def _download(url: str, marker: Path) -> None:
         with open(part, "wb") as fh:
             for chunk in r.iter_content(1 << 20):
                 fh.write(chunk)
+    new = paths.DATA / ".bundle_new"
+    shutil.rmtree(new, ignore_errors=True)
+    new.mkdir()
     with tarfile.open(part, "r:gz") as tf:
         for m in tf.getmembers():
             if m.name in FILES and m.isfile():  # only the known files, no paths
-                tf.extract(m, paths.DATA, filter="data")
+                tf.extract(m, new, filter="data")
+    # rename over the old files: a connection still open on the old public.duckdb keeps reading the old inode
+    # instead of a file truncated under it
+    for f in new.iterdir():
+        os.replace(f, paths.DATA / f.name)
+    shutil.rmtree(new, ignore_errors=True)
     part.unlink()
     marker.write_text(url)
