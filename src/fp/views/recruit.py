@@ -169,9 +169,12 @@ with tabs[1]:
         else:
             m["key"] = m.base.map(_norm)  # "Jinwoo Shin" / "Jin Woo Shin" / "Jinwoo Shin 0002" → same name
             m["homonyms"] = m.groupby("key").name.transform("count")
-            m["who"] = [("국내 교수" if r == "KR faculty" else "해외 교수" if r == "faculty abroad" else (s or "미상"))
-                        + (f" — {t}" if src == "web" and t else "")
-                        for r, s, src, t in zip(m.role, m.stage, m.stage_source, m.pos_title)]
+            def _txt(x):  # NaN/None → ""
+                return x if isinstance(x, str) else ""
+
+            m["who"] = [("국내 교수" if r == "KR faculty" else "해외 교수" if r == "faculty abroad" else (_txt(s_) or "미상"))
+                        + (f" — {_txt(t)}" if src == "web" and _txt(t) else "")
+                        for r, s_, src, t in zip(m.role, m.stage, m.stage_source, m.pos_title)]
             m["korean"] = m.is_korean.map({True: "예", False: "아니오"}).fillna("미상")
             m["active"] = [f"{int(a)}–{int(b)}" if pd.notna(a) else "" for a, b in zip(m.y0, m.y1)]
             dup = m[m.homonyms > 1].groupby("key").name.apply(list)
@@ -193,7 +196,7 @@ with tabs[1]:
             w1, w2 = st.columns([4, 1])
             who = w1.selectbox("순위를 볼 사람", list(m.name), key="rc_q_pick",
                                format_func=lambda n: f"{n}{' (' + ui.korean_name(n) + ')' if ui.korean_name(n) else ''} — "
-                                                     f"{m.set_index('name').affiliation.get(n) or '소속 미상'}")
+                                                     f"{_txt(m.set_index('name').affiliation.get(n)) or '소속 미상'}")
             win = int(w2.number_input("동년차 범위 ±", 1, 10, 3, key="rc_q_win", help="학문적 나이 차이가 이 안인 사람끼리 비교"))
             my_age = m.set_index("name").academic_age.get(who)
             ages = dict(c.execute("SELECT person, academic_age FROM person_age WHERE academic_age IS NOT NULL").fetchall())
