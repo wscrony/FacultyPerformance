@@ -111,9 +111,9 @@ def render_compare(names: list[str], kp: str, flt: metrics.Filter | None = None)
     fig = go.Figure()
     for n in names:
         if n in piv:
-            fig.add_bar(y=piv.index, x=piv[n], name=n, orientation="h",
+            fig.add_bar(y=piv.index, x=piv[n], name=ui.disp(n), orientation="h",
                         marker=dict(color=color[n], cornerradius=4),
-                        hovertemplate=f"{n}<br>%{{y}}: %{{x}}편<extra></extra>")
+                        hovertemplate=f"{ui.disp(n)}<br>%{{y}}: %{{x}}편<extra></extra>")
     fig.update_layout(barmode="group", bargap=0.25, bargroupgap=0.08,
                       title=f"분야별 논문 수 ({yr[0]}–{yr[1]})")
     _plot(fig, height=max(300, 22 * len(piv) * max(1, len(names)) // 2 + 120), key=f"{kp}_area")
@@ -127,9 +127,9 @@ def render_compare(names: list[str], kp: str, flt: metrics.Filter | None = None)
             continue
         base = ages.phd_year_eff.get(n) if n in ages.index else None
         x = d.index - base if base is not None and pd.notna(base) else d.index
-        fig.add_scatter(x=x, y=d.values, name=n, mode="lines+markers",
+        fig.add_scatter(x=x, y=d.values, name=ui.disp(n), mode="lines+markers",
                         line=dict(color=color[n], width=2), marker=dict(size=8),
-                        hovertemplate=f"{n}<br>PhD 후 %{{x}}년: 누적 %{{y:.0f}}편<extra></extra>")
+                        hovertemplate=f"{ui.disp(n)}<br>PhD 후 %{{x}}년: 누적 %{{y:.0f}}편<extra></extra>")
     fig.update_layout(title="누적 논문 수 — PhD 취득 연도 기준 정렬 (x=PhD 후 연차, 추정 포함)",
                       hovermode="x unified")
     fig.update_xaxes(title="PhD 후 연차", zeroline=True, zerolinecolor="rgba(128,128,128,0.4)")
@@ -142,9 +142,9 @@ def render_compare(names: list[str], kp: str, flt: metrics.Filter | None = None)
             continue
         base = ages.phd_year_eff.get(n) if n in ages.index else None
         x = d.index - base if base is not None and pd.notna(base) else d.index
-        fig.add_scatter(x=x, y=d.values, name=n, mode="lines+markers",
+        fig.add_scatter(x=x, y=d.values, name=ui.disp(n), mode="lines+markers",
                         line=dict(color=color[n], width=2), marker=dict(size=8),
-                        hovertemplate=f"{n}<br>PhD 후 %{{x}}년에 낸 논문까지: 누적 피인용 %{{y:,.0f}}<extra></extra>")
+                        hovertemplate=f"{ui.disp(n)}<br>PhD 후 %{{x}}년에 낸 논문까지: 누적 피인용 %{{y:,.0f}}<extra></extra>")
     fig.update_layout(title="누적 피인용 — 논문 출판 연도 기준 (x=PhD 후 연차, 현재 피인용 수)", hovermode="x unified")
     fig.update_xaxes(title="PhD 후 연차", zeroline=True, zerolinecolor="rgba(128,128,128,0.4)")
     _plot(fig, height=380, key=f"{kp}_cumcite")
@@ -257,7 +257,7 @@ with tab_search:
                    "한국인 여부는 이름·공저 기반 추정입니다.")
     chosen = st.multiselect(
         f"비교할 사람 (결과 목록에서 2–{MAX_COMPARE}명 선택 → 바로 아래에 비교가 나옵니다)",
-        sorted(view["name"].tolist()), max_selections=MAX_COMPARE, key="pick",
+        sorted(view["name"].tolist()), max_selections=MAX_COMPARE, key="pick", format_func=ui.disp,
     )
     st.download_button(
         "CSV (개인정보 제외)",
@@ -268,7 +268,7 @@ with tab_search:
         st.info("한 명만 선택했습니다. 비교하려면 한 명 이상 더 고르세요 (한 사람의 상세 정보는 위 표에서 이름을 클릭).")
     if len(chosen) >= 2:
         st.divider()
-        st.subheader("비교: " + " vs ".join(chosen))
+        st.subheader("비교: " + " vs ".join(ui.disp(n) for n in chosen))
         render_compare(chosen, "search_cmp", G)
 
 
@@ -277,7 +277,8 @@ with tab_search:
 with tab_cmp:
     opts = people_list(None)
     name_of = {o: o.split(" — ")[0] for o in opts}
-    sel = st.multiselect(f"비교할 사람 (최대 {MAX_COMPARE}명)", opts, max_selections=MAX_COMPARE, key="cmp_pick")
+    sel = st.multiselect(f"비교할 사람 (최대 {MAX_COMPARE}명, 한글 이름으로도 검색)", opts, max_selections=MAX_COMPARE,
+                         key="cmp_pick", format_func=lambda o: (f"{ui.korean_name(name_of[o])} · " if ui.korean_name(name_of[o]) else "") + o)
     names = [name_of[o] for o in sel]
     if len(names) < 1:
         st.info("이름을 검색해 선택하세요. 검색 탭에서 행을 골라 넘길 수도 있습니다.")

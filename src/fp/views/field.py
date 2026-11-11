@@ -160,7 +160,7 @@ with tabs[1]:
         if d.empty:
             continue
         rows.append({"institution": s, "faculty": len(d), "per_fac": tot / len(d),
-                     "top1": d.iloc[0]["name"], "top1_share": d.iloc[0].n / tot * 100,
+                     "top1": ui.disp(d.iloc[0]["name"]), "top1_share": d.iloc[0].n / tot * 100,
                      "top3_share": d.head(3).n.sum() / tot * 100,
                      "core": int((d.n >= 5).sum()),
                      "last": ks[(ks.institution == s) & ks.is_last].key.nunique() / max(1, tot) * 100})
@@ -184,7 +184,7 @@ with tabs[1]:
         d = per[per.institution == s]
         if len(d):
             fig.add_box(x=d.n, name=ui.short(s), marker_color=col(s), boxpoints="all", jitter=0.4,
-                        text=d.name, hovertemplate="%{text}: %{x}편<extra></extra>", orientation="h")
+                        text=d.name.map(ui.disp), hovertemplate="%{text}: %{x}편<extra></extra>", orientation="h")
     fig.update_layout(title=f"교수별 {k} 논문 수 분포 ({y0}–{y1}) — 점 = 교수", showlegend=False)
     fig.update_xaxes(title="논문 수")
     ui.plot(fig, height=80 + 60 * len(sch), legend=False, key="fd_box")

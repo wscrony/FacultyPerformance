@@ -363,16 +363,22 @@ def korean_name(name: str) -> str | None:
     return _korean_names().get(name)
 
 
+def disp(name: str) -> str:
+    """Display label, Hangul first: '신진우 (Jinwoo Shin)'; the DBLP name alone when no Hangul name is known."""
+    kn = _korean_names().get(name)
+    return f"{kn} ({name})" if kn else name
+
+
 KNAME_COL = st.column_config.TextColumn("한글", width="small", help="공개 웹 페이지에서 찾은 한글 이름 (못 찾으면 빈칸)")
 
 
 def with_korean(df: pd.DataFrame, name_col: str = "name") -> pd.DataFrame:
-    """Insert a 'kname' (Hangul name) column right after the name column."""
+    """Insert a 'kname' (Hangul name) column right before the name column (Hangul first)."""
     m = _korean_names()
     if not m or name_col not in df.columns or "kname" in df.columns:
         return df
     out = df.copy()
-    out.insert(list(out.columns).index(name_col) + 1, "kname", out[name_col].map(m).fillna(""))
+    out.insert(list(out.columns).index(name_col), "kname", out[name_col].map(m).fillna(""))
     return out
 
 
@@ -386,7 +392,7 @@ def people_table(df: pd.DataFrame, key: str, f, column_config: dict | None = Non
                            height=height, **kw)
     if pick is not None:
         nm = df.iloc[pick][name_col]
-        st.markdown(f"▼ **{nm}** 선택됨 — 자세한 정보 (다른 이름을 클릭하면 바뀝니다)")
+        st.markdown(f"▼ **{disp(nm)}** 선택됨 — 자세한 정보 (다른 이름을 클릭하면 바뀝니다)")
         person_card(nm, f, key=f"{key}_card")
     else:
         st.caption("파란 이름을 클릭하면 그 사람의 논문 목록·피인용·나이 근거가 아래에 열립니다.")
@@ -423,8 +429,7 @@ def _person_card(c, name: str, mf, f, key: str) -> None:
         role = ""
         if p is not None:
             role = {"KR faculty": "국내 교수", "faculty abroad": "해외 교수"}.get(p.role) or (p.stage or "")
-        kn = korean_name(name)
-        st.markdown(f"#### {name}" + (f" ({kn})" if kn else ""))
+        st.markdown(f"#### {disp(name)}")
         lk = links.person_links(c, name)
         if lk:
             st.markdown(" · ".join(f"[{k}{' (검색)' if kind == 'search' else ''}]({u})" for k, (u, kind) in lk.items()))
