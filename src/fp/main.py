@@ -60,6 +60,7 @@ pg = st.navigation({
         st.Page("views/schools.py", title="국내 기관", icon=":material/account_balance:", default=True),
         st.Page("views/people.py", title="한국인 연구자", icon=":material/groups:"),
         st.Page("views/field.py", title="분야 심층 비교", icon=":material/insights:", url_path="field"),
+        st.Page("views/bench.py", title="대학 벤치마크", icon=":material/compare_arrows:", url_path="bench"),
     ],
     "탐색": [
         st.Page("app.py", title="검색 · 비교", icon=":material/search:"),
