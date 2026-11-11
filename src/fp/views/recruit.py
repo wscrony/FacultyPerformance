@@ -305,8 +305,10 @@ with tabs[1]:
                                 help=f"이 {fk} 논문들의 현재 피인용 합 (OpenAlex; DOI·제목으로 못 찾은 논문은 빠짐)"),
                             "per_paper": st.column_config.NumberColumn("편당 피인용", format="%.1f"),
                             "best": st.column_config.NumberColumn("최다 피인용 논문", format="localized")})
-                with st.expander(f"{who} 상세 (논문 목록·피인용·나이 근거)"):
-                    ui.person_card(who, B.BF(start=y0, end=y1, next_tier=nt), key="rc_q_card")
+                # the cohort list already opened this person's card when their own row was clicked
+                if st.session_state.get("_selval_rc_q_better") != who:
+                    with st.expander(f"{who} 상세 (논문 목록·피인용·나이 근거)"):
+                        ui.person_card(who, B.BF(start=y0, end=y1, next_tier=nt), key="rc_q_card")
     elif q:
         st.caption("영문 3글자 또는 한글 2글자 이상 입력하세요.")
 for t, (k, d) in zip(tabs[2:], per_field.items()):

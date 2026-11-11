@@ -390,12 +390,17 @@ def person_card(name: str, f, key: str) -> None:
         c.close()
 
 
+def _s(x) -> str | None:
+    """Non-empty string or None (NaN/None from a DataFrame row)."""
+    return x if isinstance(x, str) and x else None
+
+
 def _person_card(c, name: str, mf, f, key: str) -> None:
     from fp import links
 
     age.create_views(c)
     pa = c.execute("""SELECT a.affiliation, a.phd_year, a.phd_institution, a.age_source, a.academic_age,
-                             a.birth_year, a.birth_source, a.first_top_year, r.role, s.stage,
+                             a.birth_year, a.birth_source, a.first_top_year, r.role, r.affil_raw, r.affil_year, s.stage,
                              s.stage_source, s.pos_title, s.pos_inst, s.pos_since, s.pos_url
                       FROM person_age a LEFT JOIN person_role r USING (person)
                       LEFT JOIN person_stage s USING (person) WHERE a.person = ?""", [name]).df()
@@ -420,7 +425,8 @@ def _person_card(c, name: str, mf, f, key: str) -> None:
             est_b = str(p.birth_source or "est").startswith("est")
             est_a = str(p.age_source or "est").startswith("est")
             kp = [
-                ("소속", p.affiliation or (p.pos_inst if p.stage_source == "web" else None) or "-", role or None),
+                ("소속", _s(p.affiliation) or (_s(p.pos_inst) if p.stage_source == "web" else None) or _s(p.affil_raw) or "-",
+                 role or (f"논문 소속 {int(p.affil_year)}" if pd.notna(p.affil_year) and not _s(p.affiliation) else None)),
                 ("나이" + (" (추정·부정확)" if est_b else ""), f"{THIS_YEAR - int(p.birth_year)}세" if pd.notna(p.birth_year)
                  else "-", f"출생 {int(p.birth_year)} · 출처 {p.birth_source}" if pd.notna(p.birth_year) else None),
                 ("학문적 나이" + (" (추정)" if est_a else ""), f"{int(p.academic_age)}년" if pd.notna(p.academic_age)
