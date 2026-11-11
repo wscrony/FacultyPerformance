@@ -7,12 +7,12 @@ import traceback
 from datetime import date
 from typing import Callable
 
-STEPS = ["csrankings", "dblp", "dblp_extra", "korean", "korean_verify", "orcid", "homepage", "degree_llm", "departments", "positions", "openalex", "inst_types", "citations", "title_citations", "snapshot", "report"]
+STEPS = ["csrankings", "dblp", "dblp_extra", "korean", "korean_verify", "orcid", "homepage", "degree_llm", "departments", "positions", "hangul", "openalex", "inst_types", "citations", "title_citations", "snapshot", "report"]
 
 
 def run_all(log: Callable[[str], None] = print, skip: set[str] | None = None, use_llm: bool = True) -> dict:
     from fp import institutions, pii, pool, report
-    from fp.ingest import llm_degree, llm_dept, llm_position, citations, csrankings, dblp, dblp_extra, homepage, openalex, orcid
+    from fp.ingest import llm_degree, llm_dept, llm_hangul, llm_position, citations, csrankings, dblp, dblp_extra, homepage, openalex, orcid
 
     skip = skip or set()
     out: dict[str, object] = {}
@@ -61,6 +61,7 @@ def run_all(log: Callable[[str], None] = print, skip: set[str] | None = None, us
         # new people only (cached answers are reused); after openalex would see newer affiliations, but the pool
         # (targets) only needs DBLP + korean
         step("positions", lambda: llm_position.update(con) if use_llm else "skipped (no llm)")
+        step("hangul", lambda: llm_hangul.update(con) if use_llm else "skipped (no llm)")  # new people only
         step("openalex", lambda: openalex.update(con))
         step("inst_types", lambda: institutions.fetch_types(con))
         step("citations", lambda: citations.update(con))

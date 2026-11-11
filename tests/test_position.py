@@ -48,3 +48,15 @@ def test_manual_answer_wins_and_keeps_fields(tmp_path):
 def test_hangul_filter():
     assert L._hangul("신진우") == "신진우" and L._hangul("남궁 민수") == "남궁 민수"
     assert L._hangul("Shin") is None and L._hangul("신진우 교수님입니다") is None
+
+
+def test_hangul_cache_and_store(tmp_path):
+    from fp.ingest import llm_hangul as H
+
+    path = tmp_path / "h.jsonl"
+    judge = lambda items: {i: {"korean_name": "신 진우" if "Shin" in n else "John", "kind": "known"} for i, n, _ in items}
+    assert H.judge_all([("Jinwoo Shin 0001", "KAIST"), ("John Smith", None)], judge=judge, path=path)["asked"] == 2
+    con = duckdb.connect()
+    con.execute("ATTACH ':memory:' AS pii")
+    assert H.store(con, path)["named"] == 1
+    assert con.execute("SELECT korean_name FROM pii.hangul_name WHERE person = 'Jinwoo Shin 0001'").fetchone() == ("신진우",)
