@@ -83,6 +83,19 @@ def con() -> duckdb.DuckDBPyConnection:
     return c
 
 
+def reset_connections() -> None:
+    """Close every cursor and the shared connection (after the data files were replaced)."""
+    with _CURS_LOCK:
+        for _, _, c in _CURS.values():
+            _close(c)
+        _CURS.clear()
+    try:
+        _root_con().close()
+    except Exception:
+        pass
+    _root_con.clear()
+
+
 def _close(c) -> None:
     try:
         c.close()

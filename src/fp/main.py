@@ -14,14 +14,19 @@ def _hosted_setup() -> None:
     except Exception:  # no secrets file (local run)
         sec = {}
     for k in ("FP_APP_PASSWORD", "FP_DATA_URL", "FP_HOSTED"):
-        if k in sec and k not in os.environ:
+        if k in sec:  # secrets win: an edit in the Cloud settings must reach this already-running process
             os.environ[k] = str(sec[k])
     if os.environ.get("FP_DATA_URL"):
         os.environ.setdefault("FP_HOSTED", "1")
         from fp import bundle
 
         with st.spinner("데이터 내려받는 중 (처음 한 번, 1–2분)…"):
-            bundle.ensure(os.environ["FP_DATA_URL"])
+            fresh = bundle.ensure(os.environ["FP_DATA_URL"])
+        if fresh:  # new bundle: reopen the DB and drop results computed from the old one
+            from fp import ui
+
+            ui.reset_connections()
+            st.cache_data.clear()
 
 
 _hosted_setup()
