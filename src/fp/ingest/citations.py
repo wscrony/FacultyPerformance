@@ -62,7 +62,10 @@ def fetch_chunk(dois: list[str], sess: requests.Session, key: str | None) -> dic
             if body.get("dailyRemainingUsd") == 0 and body.get("prepaidRemainingUsd", 0) == 0 and \
                     "per second" not in body.get("message", ""):
                 raise BudgetExhausted(body.get("message", "daily budget exhausted"))
-            time.sleep(max(1.0, float(body.get("retryAfter") or 1)))
+            wait = float(body.get("retryAfter") or 1)
+            if wait > 120:  # "retry tomorrow": a stop, not a pause (once slept ~24 h holding the DB lock)
+                raise BudgetExhausted(body.get("message", f"retryAfter {wait:.0f}s"))
+            time.sleep(max(1.0, wait))
             continue
         if r.ok:
             out = {}
@@ -166,7 +169,10 @@ def fetch_title(title: str, year: int | None, sess: requests.Session, key: str |
             if body.get("dailyRemainingUsd") == 0 and body.get("prepaidRemainingUsd", 0) == 0 and \
                     "per second" not in body.get("message", ""):
                 raise BudgetExhausted(body.get("message", "daily budget exhausted"))
-            time.sleep(max(1.0, float(body.get("retryAfter") or 1)))
+            wait = float(body.get("retryAfter") or 1)
+            if wait > 120:  # "retry tomorrow": a stop, not a pause (once slept ~24 h holding the DB lock)
+                raise BudgetExhausted(body.get("message", f"retryAfter {wait:.0f}s"))
+            time.sleep(max(1.0, wait))
             continue
         if r.status_code == 400:
             return None, None
@@ -261,7 +267,10 @@ def fetch_titles(items: list[tuple[str, str, int | None]], sess: requests.Sessio
             if body.get("dailyRemainingUsd") == 0 and body.get("prepaidRemainingUsd", 0) == 0 and \
                     "per second" not in body.get("message", ""):
                 raise BudgetExhausted(body.get("message", "daily budget exhausted"))
-            time.sleep(max(1.0, float(body.get("retryAfter") or 1)))
+            wait = float(body.get("retryAfter") or 1)
+            if wait > 120:  # "retry tomorrow": a stop, not a pause (once slept ~24 h holding the DB lock)
+                raise BudgetExhausted(body.get("message", f"retryAfter {wait:.0f}s"))
+            time.sleep(max(1.0, wait))
             continue
         if r.status_code == 400 and len(items) > 1:
             h = len(items) // 2
