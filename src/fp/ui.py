@@ -347,14 +347,21 @@ def clickable_table(df: pd.DataFrame, key: str, link_col: str, column_config: di
 
 @st.cache_data(ttl=3600)
 def _korean_names(_v: float = 0.0) -> dict[str, str]:
-    """DBLP name → Hangul name (pii.position.korean_name: web pages / manual)."""
+    """DBLP name → Hangul name. A name printed on a page about the person (web check / manual, pii.position) wins
+    over the LLM's (pii.hangul_name: known person or transliteration)."""
     c = _root_con().cursor()
     try:
-        have = c.execute("SELECT count(*) FROM duckdb_columns() WHERE database_name = 'pii' AND table_name = 'position' "
-                         "AND column_name = 'korean_name'").fetchone()[0]
-        if not have:
-            return {}
-        return dict(c.execute("SELECT person, korean_name FROM pii.position WHERE korean_name IS NOT NULL").fetchall())
+        def has(table, col):
+            return c.execute("SELECT count(*) FROM duckdb_columns() WHERE database_name = 'pii' AND table_name = ? "
+                             "AND column_name = ?", [table, col]).fetchone()[0] > 0
+
+        out = {}
+        if has("hangul_name", "korean_name"):
+            out.update(c.execute("SELECT person, korean_name FROM pii.hangul_name WHERE korean_name IS NOT NULL"
+                                 ).fetchall())
+        if has("position", "korean_name"):
+            out.update(c.execute("SELECT person, korean_name FROM pii.position WHERE korean_name IS NOT NULL").fetchall())
+        return out
     finally:
         c.close()
 
@@ -369,7 +376,9 @@ def disp(name: str) -> str:
     return f"{kn} ({name})" if kn else name
 
 
-KNAME_COL = st.column_config.TextColumn("한글", width="small", help="공개 웹 페이지에서 찾은 한글 이름 (못 찾으면 빈칸)")
+KNAME_COL = st.column_config.TextColumn(
+    "한글", width="small",
+    help="본인 홈페이지·학교 페이지 등에서 찾은 이름, 없으면 LLM이 알려준 이름 (모르는 사람은 로마자 표기에서 옮긴 추정값이라 틀릴 수 있음)")
 
 
 def with_korean(df: pd.DataFrame, name_col: str = "name") -> pd.DataFrame:

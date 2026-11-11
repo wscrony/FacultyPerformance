@@ -424,6 +424,21 @@ def update_positions(model: str = "sonnet", limit: Optional[int] = typer.Option(
         typer.echo(llm_position.update(con, model=model, limit=limit, workers=workers, progress=cb))
 
 
+@update_app.command("hangul")
+def update_hangul(model: str = "sonnet", workers: int = 4,
+                  store_only: bool = typer.Option(False, help="only load data/snapshots/hangul.jsonl")):
+    """Hangul names of tracked Korean researchers (LLM knowledge / transliteration; pii.hangul_name)."""
+    from fp import pii
+    from fp.ingest import llm_hangul
+
+    con = pii.connect()
+    if store_only:
+        typer.echo(llm_hangul.store(con))
+        return
+    with _progress("hangul", every=200) as cb:
+        typer.echo(llm_hangul.update(con, model=model, workers=workers, progress=cb))
+
+
 @app.command("set-position")
 def set_position(person: str, position: str = typer.Option(..., help="professor/postdoc/phd_student/industry/..."),
                  institution: Optional[str] = None, country: Optional[str] = typer.Option(None, help="kr, us, ..."),
