@@ -234,7 +234,8 @@ if view == "요약":
         ro = ppl[["name", "academic_age", "dept"]].set_index("name").join(cnt, how="left").fillna(
             {k: 0 for k in FK})
         ro["papers"] = d.groupby("name").key.nunique().reindex(ro.index).fillna(0).astype(int)
-        ro["cites"] = d.drop_duplicates(["name", "key"]).groupby("name").cited_by.sum().reindex(ro.index).fillna(0)
+        ro["cites"] = (d.drop_duplicates(["name", "key"]).groupby("name").cited_by.sum()
+                      .reindex(ro.index).fillna(0).astype(int))
         ro["main"] = cnt.idxmax(axis=1).where(cnt.max(axis=1) > 0).reindex(ro.index)
         ro = ro.reset_index().sort_values([rf if rf != "전체" else "papers", "papers"], ascending=False)
         cols = ["name", "academic_age", "main", "papers", "cites"] + ([rf] if rf != "전체" else []) + [
@@ -316,19 +317,21 @@ elif view == "분야별 순위·강약":
                 f"{', '.join(tb[tb.verdict == '강점'].key) or '없음'}  \n"
                 f"**약점** (0.6배 이하): {', '.join(tb[tb.verdict == '약점'].key) or '없음'} — 지표: {MET[met]}")
     lr = np.log2(tb.ratio.clip(lower=1 / 8, upper=8).fillna(1))
+    hf = ",.0f" if met in ("cit", "abs") else ".2f"
     fig = go.Figure(go.Bar(
         y=tb.key, x=lr, orientation="h", marker=dict(color=lr, colorscale=div_scale(), cmin=-2, cmax=2,
                                                      cornerradius=4),
         customdata=np.stack([tb.base, tb.peer_med, tb.ratio.fillna(0)], axis=1),
-        hovertemplate="%{y}: " + S[base] + " %{customdata[0]:.2f} vs 중앙값 %{customdata[1]:.2f} "
+        hovertemplate="%{y}: " + S[base] + f" %{{customdata[0]:{hf}}} vs 중앙값 %{{customdata[1]:{hf}}} "
                       "(×%{customdata[2]:.2f})<extra></extra>"))
     fig.update_layout(title=f"{S[base]} ÷ 비교 대학 중앙값 (오른쪽 = 강점)", yaxis=dict(autorange="reversed"))
     fig.update_xaxes(tickvals=[-2, -1, 0, 1, 2], ticktext=["×¼", "×½", "×1", "×2", "×4"], zeroline=True)
     ui.plot(fig, height=max(320, 30 * len(tb) + 80), key="bm_ratio")
+    vf = {"cit": "localized", "abs": "%d", "share": "%.1f%%"}.get(met, "%.2f")  # 피인용·논문 수는 정수로
     st.dataframe(tb.drop(columns="key"), hide_index=True, width="stretch", column_config={
-        "field": "분야", "base": st.column_config.NumberColumn(S[base], format="%.2f"),
-        "peer_med": st.column_config.NumberColumn("비교 대학 중앙값", format="%.2f"),
-        "peer_max": st.column_config.NumberColumn("비교 대학 최고", format="%.2f"), "leader": "1위 학교",
+        "field": "분야", "base": st.column_config.NumberColumn(S[base], format=vf),
+        "peer_med": st.column_config.NumberColumn("비교 대학 중앙값", format=vf),
+        "peer_max": st.column_config.NumberColumn("비교 대학 최고", format=vf), "leader": "1위 학교",
         "ratio": st.column_config.NumberColumn("중앙값 대비", format="×%.2f"),
         "rank": st.column_config.NumberColumn(f"순위 / {len(schools)}", format="%d위"),
         "papers": st.column_config.NumberColumn(f"{S[base]} 논문", format="%d편"), "verdict": "판정"})
@@ -841,7 +844,7 @@ elif view == "피인용·영향력":
             "pct": st.column_config.NumberColumn("같은 연도·분야 백분위", format="%.1f"), "who": f"{S[ts]} 교수"})
 
     st.subheader("분야별 교수 1인당 피인용")
-    st.dataframe(cit_per.rename(index=S).round(0), width="stretch")
+    st.dataframe(cit_per.rename(index=S).round(0).astype(int), width="stretch")
 
 # ════════════════════════════ 교수 ════════════════════════════
 elif view == "교수":
@@ -898,7 +901,7 @@ elif view == "교수":
     st.caption("분야마다 논문 수 차이가 커서(VC·ML은 많고 TC·DB는 적음) 대표 교수는 분야 안에서만 비교합니다.")
     ppl_age = _people(tuple(schools)).set_index("name").academic_age
     fx = raw.drop_duplicates(["institution", "name", "key"]).groupby(["field", "institution", "name"]).agg(
-        papers=("key", "nunique"), cites=("cited_by", "sum")).reset_index()
+        papers=("key", "nunique"), cites=("cited_by", "sum")).reset_index().astype({"cites": int})
     nmax = st.slider("학교·분야마다 몇 명", 1, 5, 3, key="bm_e1n")
     mat = {}
     for k in FK:
@@ -972,7 +975,7 @@ elif view == "교수":
     tf2 = st.selectbox("분야", FK, key="bm_pf", format_func=lambda k: FLAB.get(k, k))
     d = raw[raw.field == tf2]
     tp = d.drop_duplicates(["institution", "name", "key"]).groupby(["institution", "name"]).agg(
-        papers=("key", "nunique"), cites=("cited_by", "sum")).reset_index()
+        papers=("key", "nunique"), cites=("cited_by", "sum")).reset_index().astype({"cites": int})
     cols = st.columns(min(3, len(schools)))
     for i, s in enumerate(schools):
         t = tp[tp.institution == s].sort_values(["papers", "cites"], ascending=False).head(10)
