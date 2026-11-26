@@ -439,6 +439,23 @@ def update_hangul(model: str = "sonnet", workers: int = 4,
         typer.echo(llm_hangul.update(con, model=model, workers=workers, progress=cb))
 
 
+@update_app.command("visibility")
+def update_visibility(model: str = "sonnet", limit: Optional[int] = typer.Option(None), workers: int = 6,
+                      store_only: bool = typer.Option(False, help="only rebuild pii.vis_item from the cache + lists")):
+    """Visibility record (fellowships, top-conference chair/steering roles, best papers, keynotes): public lists +
+    claude CLI web search; pii.vis_item. Feeds the visibility score."""
+    from fp import pii
+    from fp.ingest import visibility
+
+    con = pii.connect()
+    if store_only:
+        visibility.fetch_lists()
+        typer.echo(visibility.store(con))
+        return
+    with _progress("visibility", every=10) as cb:
+        typer.echo(visibility.update(con, model=model, limit=limit, workers=workers, progress=cb))
+
+
 @app.command("set-position")
 def set_position(person: str, position: str = typer.Option(..., help="professor/postdoc/phd_student/industry/..."),
                  institution: Optional[str] = None, country: Optional[str] = typer.Option(None, help="kr, us, ..."),
