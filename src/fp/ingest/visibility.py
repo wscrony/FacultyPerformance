@@ -104,7 +104,7 @@ _EXTRA_ALIAS = {"NEURIPS": "nips", "NIPS": "nips", "SP": "oakland", "IEEESP": "o
                 "IEEESYMPOSIUMONSECURITYANDPRIVACY": "oakland", "USENIXSECURITY": "usenixsec", "CHI": "chiconf",
                 "PVLDB": "vldb", "VLDB": "vldb", "SIGGRAPHASIA": "siggraph-asia", "ESECFSE": "fse", "FSE": "fse",
                 "SIGKDD": "kdd", "KDD": "kdd", "WWW": "www", "THEWEBCONF": "www", "WEBCONF": "www",
-                "ACMMM": "mm", "MM": "mm", "ACMCCS": "ccs", "CCS": "ccs", "ISCA": "isca", "SIGIR": "sigir"}
+                "ACMMM": "mm", "MM": "mm", "ACMMULTIMEDIA": "mm", "MULTIMEDIA": "mm", "ACMCCS": "ccs", "CCS": "ccs", "ISCA": "isca", "SIGIR": "sigir"}
 
 
 def venue_aliases(con) -> dict[str, str]:

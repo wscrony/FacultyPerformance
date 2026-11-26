@@ -62,6 +62,15 @@ def scores(con, people: list[str], venues: list[str]) -> pd.DataFrame:
                    + sum(pts * df[col] for col, pts in ITEMS.values())).round(1)
 
     def ev(g):
+        # one entry per record: the same role found by a list / by hand / by the web search shows once
+        # (hand-entered first, then entries with a year); a fellowship shows once
+        g = g.assign(_pri=g.source.map({"manual": 0, "wikipedia-acm": 1, "bpa-list": 1}).fillna(2),
+                     _noyear=g.year.isna(), _v=g.venue.fillna(""))
+        g = g.sort_values(["_pri", "_noyear"])
+        fel = g.kind.isin(["acm_fellow", "ieee_fellow"])
+        g = pd.concat([g[fel].drop_duplicates("kind"), g[~fel].drop_duplicates(["kind", "_v", "year"])])
+        g = g[~(~g.kind.isin(["acm_fellow", "ieee_fellow"]) & g._noyear
+                & g.duplicated(["kind", "_v"], keep=False) & (g.groupby(["kind", "_v"]).year.transform("count") > 0))]
         g = g.sort_values(["kind", "year"])
         return " · ".join(f"{KIND_KO[k]}" + (f" {B.venue_label(v)}" if isinstance(v, str) and v else "")
                           + (f" {int(y)}" if pd.notna(y) else "") + (" (수동)" if src == "manual" else "")
