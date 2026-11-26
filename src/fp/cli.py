@@ -467,6 +467,17 @@ def add_visibility(person: str, kind: str = typer.Option(..., help="acm_fellow/i
     typer.echo(visibility.add_manual(person, kind, venue, year, url))
 
 
+@app.command("remove-visibility")
+def remove_visibility(person: str, url: Optional[str] = typer.Option(None, help="only records with this evidence URL"),
+                      kind: Optional[str] = typer.Option(None), venue: Optional[str] = typer.Option(None),
+                      year: Optional[int] = typer.Option(None), reason: Optional[str] = typer.Option(None)):
+    """Drop a person's wrong visibility records (all, or those matching the options). Takes effect after
+    `fp update visibility --store-only`; kept when the web search is run again."""
+    from fp.ingest import visibility
+
+    typer.echo(visibility.remove_manual(person, url, kind, venue, year, reason))
+
+
 @app.command("set-position")
 def set_position(person: str, position: str = typer.Option(..., help="professor/postdoc/phd_student/industry/..."),
                  institution: Optional[str] = None, country: Optional[str] = typer.Option(None, help="kr, us, ..."),

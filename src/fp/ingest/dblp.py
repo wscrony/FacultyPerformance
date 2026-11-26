@@ -329,11 +329,20 @@ def parse(src: Path, out: Path, progress: Callable[[int], None] | None = None, b
     return {"seen": seen, "kept": kept}
 
 
+# Spellings DBLP keeps as separate people although they are one (alias → the CSrankings faculty name). Checked by
+# hand: same institution and co-authors on both sides of the split.
+MANUAL_ALIASES = {
+    "Myoung-Ho Kim": "Myoung Ho Kim",  # KAIST DB: DBLP 1987–2017 hyphenated, 2017– without (user request 2026-11-27)
+}
+
 LOAD_SQL = """
 CREATE OR REPLACE TABLE dblp_paper AS SELECT * FROM read_parquet('{d}/paper.parquet');
 CREATE OR REPLACE TABLE dblp_authorship AS SELECT * FROM read_parquet('{d}/authorship.parquet');
 CREATE OR REPLACE TABLE alias AS
     SELECT alias, name FROM read_csv('{raw}/dblp-aliases.csv', header=true, all_varchar=true);
+"""
+
+DERIVED_SQL = """
 CREATE OR REPLACE TABLE author_pub AS
 SELECT a.name, p.venue, p.year,
        count(*)::INTEGER AS count,
@@ -351,6 +360,8 @@ def load(con, sha: str) -> dict[str, int]:
     con.execute("BEGIN")
     try:
         con.execute(LOAD_SQL.format(d=snapshot_dir(sha), raw=raw_dir(sha)))
+        _merge_manual_aliases(con)
+        con.execute(DERIVED_SQL)
         con.execute("INSERT OR REPLACE INTO snapshot VALUES ('dblp', ?, now())", [sha])
         con.execute("COMMIT")
     except Exception:
@@ -358,6 +369,29 @@ def load(con, sha: str) -> dict[str, int]:
         raise
     return {t: con.execute(f"SELECT count(*) FROM {t}").fetchone()[0]
             for t in ("dblp_paper", "dblp_authorship", "author_pub", "author_orcid", "alias")}
+
+
+def _merge_manual_aliases(con) -> int:
+    """Add MANUAL_ALIASES to the alias table (dblp_extra resolves names through it) and rename those authors."""
+    n = 0
+    for a, name in MANUAL_ALIASES.items():
+        con.execute("DELETE FROM alias WHERE alias = ?", [a])
+        con.execute("INSERT INTO alias VALUES (?, ?)", [a, name])
+        n += con.execute("UPDATE dblp_authorship SET name = ? WHERE name = ?", [name, a]).fetchone()[0]
+    return n
+
+
+def apply_manual_aliases(con) -> dict[str, int]:
+    """Apply MANUAL_ALIASES to the loaded DB without reloading DBLP (rename + rebuild author_pub / author_orcid)."""
+    con.execute("BEGIN")
+    try:
+        n = _merge_manual_aliases(con)
+        con.execute(DERIVED_SQL)
+        con.execute("COMMIT")
+    except Exception:
+        con.execute("ROLLBACK")
+        raise
+    return {"renamed_authorships": n}
 
 
 def check_against_csrankings(con, country: str = "kr") -> dict[str, float]:
