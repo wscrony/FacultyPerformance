@@ -456,6 +456,17 @@ def update_visibility(model: str = "sonnet", limit: Optional[int] = typer.Option
         typer.echo(visibility.update(con, model=model, limit=limit, workers=workers, progress=cb))
 
 
+@app.command("add-visibility")
+def add_visibility(person: str, kind: str = typer.Option(..., help="acm_fellow/ieee_fellow/pc_chair/general_chair/"
+                                                                    "steering/best_paper/keynote"),
+                   venue: Optional[str] = typer.Option(None, help='conference, e.g. "VLDB"'),
+                   year: Optional[int] = typer.Option(None), url: Optional[str] = typer.Option(None)):
+    """Hand-add a visibility record (DBLP name). Takes effect after `fp update visibility --store-only`."""
+    from fp.ingest import visibility
+
+    typer.echo(visibility.add_manual(person, kind, venue, year, url))
+
+
 @app.command("set-position")
 def set_position(person: str, position: str = typer.Option(..., help="professor/postdoc/phd_student/industry/..."),
                  institution: Optional[str] = None, country: Optional[str] = typer.Option(None, help="kr, us, ..."),
