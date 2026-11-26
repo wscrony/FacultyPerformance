@@ -61,6 +61,10 @@ def _compute(y0: int, y1: int, amin: int, amax: int, nt: bool, min_p: int, tv: f
     main = pf.sort_values(["papers", "field"], ascending=[False, True]).drop_duplicates("name").set_index("name").field
     krp = B.kr_faculty_field_rank(c, bf)
     krp = krp[krp.field != "전체"]
+    # sub-field (CSrankings area) and per-venue counts, for the sub-field picker in each field tab
+    rbf = B.BF(start=max(y0, y1 - 1), end=y1, next_tier=nt)
+    subs = {by: (B.person_sub_counts(c, list(cand.name), bf, by), B.person_sub_counts(c, list(cand.name), rbf, by),
+                 B.kr_faculty_sub_counts(c, bf, by)) for by in ("area", "venue")}
     out = {}
     for k in B.FIELDS:
         d = pf[(pf.field == k) & (pf.papers >= min_p)][["name", "papers"]].rename(columns={"papers": "field"})
@@ -77,12 +81,12 @@ def _compute(y0: int, y1: int, amin: int, amax: int, nt: bool, min_p: int, tv: f
         d["kr_pct"] = [max(1, round(100 * (kp >= n).mean())) if len(kp) else None for n in d.field]
         out[k] = d
     c.close()
-    return cand, out, krp
+    return cand, out, krp, subs
 
 
 from fp import topvenues  # noqa: E402
 
-cand, per_all, krp_all = _compute(y0, y1, amin, amax, nt, int(min_p), topvenues.version())
+cand, per_all, krp_all, SUBS = _compute(y0, y1, amin, amax, nt, int(min_p), topvenues.version())
 cand = cand[cand.type.isin(types)]
 if loc != "전체":
     cand = cand[cand["where"] == loc]
@@ -318,16 +322,38 @@ for t, (k, d) in zip(tabs[2:], per_field.items()):
         tt = q1.multiselect("유형 좁히기", types, default=types, key=f"rc_t_{k}")
         only_main = q2.toggle(f"주 분야가 {k}인 사람만", value=True, key=f"rc_main_{k}",
                               help=f"끄면 주 분야는 다르지만 {k} 논문도 {min_p}편 이상인 사람까지 보입니다")
+        kind, areas = B.field_subs(c, k, nt)
+        opts = [""] + ([f"area:{a}" for a in areas] if kind == "area" else []) + [
+            f"venue:{v}" for v in B.field_venues(c, [k], nt)]
+        sel = st.selectbox(
+            "세부 분야", opts, key=f"rc_sub_{k}",
+            format_func=lambda o, k=k: f"전체 {k}" if not o else (
+                B.AREA_NAMES.get(o[5:], o[5:]) if o.startswith("area:") else f"학회 · {B.venue_label(o[6:])}"),
+            help="세부 분야(CSrankings 분류)나 학회 하나만 골라 그 논문 수로 다시 정렬합니다")
+        lbl, tbf = k, B.BF(start=y0, end=y1, next_tier=nt, fields=[k])
+        if sel:
+            by_, sk = sel.split(":", 1)
+            cnt, rcnt, krc = SUBS[by_]
+            lbl = B.AREA_NAMES.get(sk, sk) if by_ == "area" else B.venue_label(sk)
+            tbf = B.BF(start=y0, end=y1, next_tier=nt, **({"areas": [sk]} if by_ == "area" else {"venues": [sk]}))
+            d = d.assign(field=d.name.map(cnt[cnt["sub"] == sk].set_index("name").papers).fillna(0).astype(int))
+            d = d[d.field >= min_p].copy()
+            d["recent"] = d.name.map(rcnt[rcnt["sub"] == sk].set_index("name").papers).fillna(0).astype(int)
+            d["per_year"] = (d.field / d.active).round(2)
+            kp = krc[krc["sub"] == sk].papers
+            d["kr_equiv"] = [f"{1 + int((kp > n).sum())}위 / {len(kp)}명" for n in d.field]
+            d["kr_pct"] = [max(1, round(100 * (kp >= n).mean())) if len(kp) else None for n in d.field]
+            d = d.sort_values([sort, "field", "name"], ascending=[False, False, True], kind="mergesort")
         d = d[d.type.isin(tt)]
         if only_main:
             d = d[d["main"] == k]
-        st.caption(f"후보 {len(d)}명")
+        st.caption(f"후보 {len(d)}명" + (f" — {lbl} 논문 {min_p}편 이상" if sel else ""))
         show = d[["name", "type", "verified", "pos_url", "institution", "main", "acad_age", "field", "recent", "per_year",
                   "first", "cites", "kr_equiv", "kr_pct", "cohort_pctl"]].copy()
         show.insert(0, "no", range(1, len(show) + 1))
         mx = int(show.field.max() or 1)
         ui.people_table(
-            ui.add_age(show, after="acad_age"), f"rc_tab_{k}", B.BF(start=y0, end=y1, next_tier=nt, fields=[k]),
+            ui.add_age(show, after="acad_age"), f"rc_tab_{k}_{lbl}", tbf,
             height=min(620, 36 * len(show) + 40),
             column_config={
                 "no": st.column_config.NumberColumn("#", width="small"), "type": "유형",
@@ -335,22 +361,22 @@ for t, (k, d) in zip(tabs[2:], per_field.items()):
                                                         help="웹 검색으로 확인한 현재 직위. 비어 있으면 확인 못 해 추정"),
                 "pos_url": st.column_config.LinkColumn("근거", display_text="↗", width="small"),
                 "institution": "현재 소속", "main": "주 분야", "acad_age": "학문적 나이",
-                "field": st.column_config.ProgressColumn(f"{k} 논문 {y0}–{y1}", format="%d", min_value=0,
+                "field": st.column_config.ProgressColumn(f"{lbl} 논문 {y0}–{y1}", format="%d", min_value=0,
                                                          max_value=mx),
-                "recent": st.column_config.NumberColumn("최근 2년", help=f"{max(y0, y1 - 1)}–{y1} {k} 논문"),
+                "recent": st.column_config.NumberColumn("최근 2년", help=f"{max(y0, y1 - 1)}–{y1} {lbl} 논문"),
                 "per_year": st.column_config.NumberColumn("연평균", format="%.2f",
                                                           help="분야 논문 / 활동 연수 (PhD 4년 전부터, 기간 안)"),
                 "first": st.column_config.NumberColumn("1저자", help="기간 내 전체 top 학회 1저자 논문"),
                 "cites": st.column_config.NumberColumn("피인용", format="localized", help="기간 내 논문의 OpenAlex 피인용"),
                 "kr_equiv": st.column_config.TextColumn("국내 교수 환산 순위",
-                                                        help=f"같은 기간 {k} 논문 수로 국내 교수들 사이에 넣었을 때 순위"),
+                                                        help=f"같은 기간 {lbl} 논문 수로 국내 교수들 사이에 넣었을 때 순위"),
                 "kr_pct": st.column_config.NumberColumn("국내 교수 대비", format="상위 %d%%",
                                                         help="국내 교수 중 이 사람 이상으로 논문을 낸 비율 — 작을수록 상위"),
                 "cohort_pctl": st.column_config.NumberColumn("동년차 국내 교수 대비", format="%d백분위",
                                                              help="학문적 나이 ±2년 국내 교수 사이 백분위 (전체 분야 논문)"),
             },
         )
-        st.download_button("CSV 다운로드", show.to_csv(index=False), f"recruit_{k}_{y0}-{y1}.csv",
+        st.download_button("CSV 다운로드", show.to_csv(index=False), f"recruit_{lbl}_{y0}-{y1}.csv",
                            key=f"rc_csv_{k}")
 st.caption("유형은 웹 검색(LLM)으로 현재 직위를 확인한 경우 그 결과를, 아니면 최근 논문 소속과 학문적 나이로 추정한 값을 "
            "씁니다. 유형·한국인 여부·나이는 공개 데이터(CSrankings·DBLP·OpenAlex·ORCID·홈페이지)와 LLM 지식으로 추정한 값이라 "

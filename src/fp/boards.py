@@ -36,7 +36,7 @@ class BF:
             if not self.next_tier:
                 conds.append(f"NOT {v}.next_tier")
             if self.areas:
-                conds.append(f"{v}.area IN (SELECT unnest(?))")
+                conds.append(f"({area_sql(v)}) IN (SELECT unnest(?))")
                 params.append(self.areas)
             elif self.fields:
                 conds.append(f"({field_sql(v)}) IN (SELECT unnest(?))")
@@ -330,6 +330,76 @@ def field_sql(v: str = "v") -> str:
 
 
 _FIELD_SQL = field_sql("v")
+
+# CSrankings areas = sub-fields of a department field (shown when a field has more than one)
+AREA_NAMES = {
+    "chi": "HCI", "nlp": "NLP", "vision": "Computer Vision", "graph": "Computer Graphics",
+    "visualization": "Visualization & VR", "mod": "Databases", "inforet": "Web & IR", "mlmining": "Machine Learning",
+    "ai": "Artificial Intelligence", "act": "Algorithms & Complexity", "crypt": "Cryptography",
+    "log": "Logic & Verification", "sec": "Security", "arch": "Computer Architecture", "bed": "Embedded & Real-time",
+    "da": "Design Automation", "hpc": "High-performance Computing", "ops": "Operating Systems",
+    "metrics": "Measurement & Performance", "comm": "Networks", "mobile": "Mobile Computing",
+    "soft": "Software Engineering", "plan": "Programming Languages", "robotics": "Robotics",
+    "bio": "Computational Biology", "ecom": "Economics & Computation", "csed": "CS Education",
+    "datamining": "Data Mining (KDD, CIKM)",
+}
+
+
+VENUE_LABEL = {"chiconf": "CHI", "oakland": "IEEE S&P", "usenixsec": "USENIX Security", "nips": "NeurIPS",
+               "siggraph-asia": "SIGGRAPH Asia", "vis": "IEEE VIS", "vr": "IEEE VR", "sigcse": "SIGCSE", "ec": "EC",
+               "naacl": "NAACL", "www": "WWW", "ubicomp": "UbiComp", "mobicom": "MobiCom", "mobisys": "MobiSys",
+               "sensys": "SenSys", "sigmetrics": "SIGMETRICS", "usenixatc": "USENIX ATC"}
+
+
+def venue_label(v: str) -> str:
+    return VENUE_LABEL.get(v, v.upper())
+
+
+def area_sql(v: str = "v") -> str:
+    """Sub-field of a paper: its CSrankings area; KDD and CIKM (moved to DM) get their own 'datamining' area."""
+    exc = " ".join(f"WHEN {v}.venue = '{x}' THEN 'datamining'" for x in VENUE_FIELD)
+    return f"CASE {exc} ELSE {v}.area END"
+
+
+def field_subs(con, field: str, next_tier: bool = False) -> tuple[str, list[str]]:
+    """How a department field splits: ('area', areas) when it spans several areas, else ('venue', its venues)."""
+    rows = con.execute(
+        f"SELECT DISTINCT {area_sql('v')} AS a, v.venue FROM venue v WHERE ({_FIELD_SQL}) = ? AND (? OR NOT v.next_tier)",
+        [field, next_tier]).fetchall()
+    areas = sorted({a for a, _ in rows})
+    return ("area", areas) if len(areas) > 1 else ("venue", sorted({v for _, v in rows}))
+
+
+def _sub_expr(by: str) -> str:
+    return area_sql("v") if by == "area" else "v.venue"
+
+
+def person_sub_counts(con, names: list[str], f: BF, by: str = "area"):
+    """Papers per person × sub-field (by='area') or × venue (by='venue') in the filter window."""
+    import pandas as pd
+
+    if not names:
+        return pd.DataFrame(columns=["name", "sub", "papers"])
+    w, prm = f.where("p", "v")
+    return con.execute(
+        f"""SELECT a.name, {_sub_expr(by)} AS sub, count(*) AS papers
+            FROM dblp_authorship a JOIN dblp_paper p USING (key) JOIN venue v ON v.venue = p.venue
+            WHERE a.name IN (SELECT unnest(?)) AND {w} GROUP BY 1, 2""",
+        [names, *prm],
+    ).df()
+
+
+def kr_faculty_sub_counts(con, f: BF, by: str = "area"):
+    """Papers per KR faculty member × sub-field or venue — the yardstick for a candidate's sub-field rank."""
+    w, prm = f.where("p", "v")
+    return con.execute(
+        f"""WITH fac AS (SELECT DISTINCT c.name FROM cs_faculty c JOIN institution i ON i.institution = c.affiliation
+                         WHERE i.country = 'kr')
+            SELECT a.name, {_sub_expr(by)} AS sub, count(*) AS papers
+            FROM dblp_authorship a JOIN dblp_paper p USING (key) JOIN venue v ON v.venue = p.venue
+            WHERE a.name IN (SELECT name FROM fac) AND {w} GROUP BY 1, 2""",
+        prm,
+    ).df()
 
 
 def kr_field_matrix(con, f: BF):
