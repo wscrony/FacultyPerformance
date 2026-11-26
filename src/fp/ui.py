@@ -569,17 +569,25 @@ def top_venue_editor(expanded: bool = False) -> None:
             _save_top(set(df[df.top & df.countable].venue) | set(sel.venue))
             st.rerun()
 
-        s1, s2 = st.columns([2, 3])
+        s1, s2, s3 = st.columns([2, 2.5, 2.5])
         q = s1.text_input("학회 찾기 (개별로 고치기)", key="tv_q", placeholder="예: SoCG, CAV, CIKM")
         flds = [k for k in B.FIELDS if k in set(df.field)]
         ff = s2.multiselect("분야로 좁히기", flds, key="tv_ff", format_func=lambda k: f"{k} · {B.FIELDS[k][0]}")
+        df["sub"] = [B.VENUE_AREA.get(v) or (a if isinstance(a, str) else None) for v, a in zip(df.venue, df.area)]
+        sub_pool = df[df.field.isin(ff)] if ff else df
+        subs = sorted({x for x in sub_pool["sub"].dropna()}, key=lambda x: (B.AREA_FIELD.get(x, "DM"), x))
+        fs = s3.multiselect("세부 분야로 좁히기", subs, key="tv_fs",
+                            format_func=lambda x: f"{B.AREA_NAMES.get(x, x)} ({B.AREA_FIELD.get(x, 'DM')})",
+                            help="CSrankings 세부 분야. 분야를 먼저 고르면 그 분야의 세부 분야만 보입니다")
         view = df[df.name.str.contains(q, case=False) | df.venue.str.contains(q, case=False)] if q else df
         if ff:
             view = view[view.field.isin(ff)]
+        if fs:
+            view = view[view["sub"].isin(fs)]
         # bulk: tick / untick everything shown (after the search and field filter), or clear all
         shown = set(view[view.countable].venue)
         cur_top = set(df[df.top & df.countable].venue)
-        w = "아래 목록에 보이는 학회" if (q or ff) else "모든 학회"
+        w = "아래 목록에 보이는 학회" if (q or ff or fs) else "모든 학회"
         k1, k2, k3, _ = st.columns([1.3, 1.3, 1, 2.4])
         if k1.button("보이는 학회 모두 top", key="tv_all_on", help=f"{w}를 top으로 (바로 저장)"):
             _save_top(cur_top | shown)
@@ -595,7 +603,8 @@ def top_venue_editor(expanded: bool = False) -> None:
         ed = st.data_editor(
             view[["top", "name", "field", "kiise", "bk21", "kaist", "snu", "postech", "avg", "csr", "data",
                   "venue"]].reset_index(drop=True),
-            hide_index=True, width="stretch", height=460, key=f"tv_editor_{q}_{'-'.join(ff)}_{topvenues.version()}",
+            hide_index=True, width="stretch", height=460,
+            key=f"tv_editor_{q}_{'-'.join(ff + fs)}_{topvenues.version()}",
             disabled=["name", "field", "kiise", "bk21", "kaist", "snu", "postech", "avg", "csr", "data", "venue"],
             column_config={
                 "top": st.column_config.CheckboxColumn("top", help="체크 = top 학회로 셈 (논문 데이터가 있는 학회만 적용)"),
