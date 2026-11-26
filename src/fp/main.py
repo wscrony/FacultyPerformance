@@ -1,5 +1,7 @@
 """App entry: analysis boards + the original search/compare explorer. Launch with `fp app` (127.0.0.1 only)."""
 
+import os
+
 import streamlit as st
 
 st.set_page_config(page_title="Faculty Performance", page_icon="📊", layout="wide")
@@ -65,7 +67,9 @@ pg = st.navigation({
     "탐색": [
         st.Page("app.py", title="검색 · 비교", icon=":material/search:"),
         st.Page("views/recruit.py", title="교수 초빙 후보", icon=":material/person_search:", url_path="recruit"),
-        st.Page("views/visibility.py", title="Visibility 점수", icon=":material/military_tech:", url_path="visibility"),
+        # Visibility 점수 (views/visibility.py) hidden by user request 2026-11-27; file kept, FP_SHOW_VISIBILITY=1 shows it
+        *([st.Page("views/visibility.py", title="Visibility 점수", icon=":material/military_tech:",
+                   url_path="visibility")] if os.environ.get("FP_SHOW_VISIBILITY") == "1" else []),
     ],
     "설정": [st.Page("views/venues.py", title="Top 학회 설정", icon=":material/tune:", url_path="venues")],
 })
