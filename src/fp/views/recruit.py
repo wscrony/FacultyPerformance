@@ -303,7 +303,7 @@ with tabs[1]:
                             "institution": "소속", "acad_age": "학문적 나이 (추정)",
                             "field": st.column_config.ProgressColumn(
                                 f"{fk} 논문 {y0}–{y1}", format="%d", min_value=0,
-                                max_value=int(show.field.max() or 1)),
+                                max_value=ui.vmax(show.field)),
                             "cites": st.column_config.NumberColumn(
                                 "피인용", format="localized",
                                 help=f"이 {fk} 논문들의 현재 피인용 합 (OpenAlex; DOI·제목으로 못 찾은 논문은 빠짐)"),
@@ -352,10 +352,14 @@ for t, (k, d) in zip(tabs[2:], per_field.items()):
         if only_main:
             d = d[d["main"] == k]
         st.caption(f"후보 {len(d)}명" + (f" — {lbl} 논문 {min_p}편 이상" if sel else ""))
+        if d.empty:
+            st.info("조건에 맞는 후보가 없습니다. 유형·세부 분야를 넓히거나 '분야 논문 최소'를 낮추거나, "
+                    f"'주 분야가 {k}인 사람만'을 꺼 보세요.")
+            continue
         show = d[["name", "type", "verified", "pos_url", "institution", "main", "acad_age", "field", "recent", "per_year",
                   "first", "cites", "kr_equiv", "kr_pct", "cohort_pctl"]].copy()
         show.insert(0, "no", range(1, len(show) + 1))
-        mx = int(show.field.max() or 1)
+        mx = ui.vmax(show.field)
         ui.people_table(
             ui.add_age(show, after="acad_age"), f"rc_tab_{k}_{lbl}", tbf,
             height=min(620, 36 * len(show) + 40),

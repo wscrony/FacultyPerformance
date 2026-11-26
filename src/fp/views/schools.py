@@ -38,7 +38,7 @@ pick_i = ui.clickable_table(
     column_config={
         "rank": st.column_config.NumberColumn("세계 순위 (논문 수)", format="%d위"),
         "papers": st.column_config.ProgressColumn("논문", format="%d", min_value=0,
-                                                  max_value=int(kr_tab.papers.max() or 1)),
+                                                  max_value=ui.vmax(kr_tab.papers)),
         "faculty": st.column_config.NumberColumn("교수 ↗", format="%d명",
                                                  help="클릭하면 이 숫자에 들어간 교수 전원의 이름·학과·논문 수가 아래에 나옵니다"),
         "per_faculty": st.column_config.NumberColumn("교수 1인당 논문", format="%.1f"),
@@ -71,7 +71,7 @@ if pick_i is not None:
             column_config={
                 "no": st.column_config.NumberColumn("#", width="small"), "name": "교수",
                 "papers": st.column_config.ProgressColumn("논문", format="%d", min_value=0,
-                                                          max_value=int(fl.papers.max() or 1)),
+                                                          max_value=ui.vmax(fl.papers)),
                 "main_field": "주 분야", "main_papers": "주 분야 논문", "by_field": "분야별 논문",
                 "dept_group": "학과 구분 (추정)", "department": "학과 (추정)",
             },
@@ -145,7 +145,7 @@ def with_kr_rank(d, field: str):
 
 
 def fac_table(df, label: str, key: str, field: str):
-    mx = int(df.papers.max() or 1) if len(df) else 1
+    mx = ui.vmax(df.papers)
     ui.people_table(
         ui.add_age(df.drop(columns=["kr_n"], errors="ignore"), after="academic_age"), key, f,
         height=min(420, 36 * len(df) + 40),
@@ -176,7 +176,7 @@ with tabs[0]:
     main = main.join(info[["papers_window", "academic_age", "age_source"]], on="name")
     main["fo"] = main.main_field.map({k: n for n, k in enumerate(B.FIELDS)})
     main = main.sort_values(["fo", "rank"])
-    mx = int(main.papers.max() or 1) if len(main) else 1
+    mx = ui.vmax(main.papers)
     st.caption(f"주 분야 = {f.start}–{f.end} 논문이 가장 많은 분야. 순위는 그 분야 논문 수 기준.")
     ui.people_table(
         ui.add_age(main[["main_field", "kr_rank", "rank", "name", "papers", "papers_window", "academic_age",
