@@ -354,7 +354,7 @@ AREA_NAMES = {
 VENUE_LABEL = {"chiconf": "CHI", "oakland": "IEEE S&P", "usenixsec": "USENIX Security", "nips": "NeurIPS",
                "siggraph-asia": "SIGGRAPH Asia", "vis": "IEEE VIS", "vr": "IEEE VR", "sigcse": "SIGCSE", "ec": "EC",
                "naacl": "NAACL", "www": "WWW", "ubicomp": "UbiComp", "mobicom": "MobiCom", "mobisys": "MobiSys",
-               "sensys": "SenSys", "sigmetrics": "SIGMETRICS", "usenixatc": "USENIX ATC", "compgeom": "SoCG",
+               "sensys": "SenSys", "sigmetrics": "SIGMETRICS", "usenixatc": "USENIX ATC", "compgeom": "SoCG", "conext": "CoNEXT",
                "ieeepact": "PACT", "x_eurographics": "Eurographics", "x_fse": "FSE"}
 
 

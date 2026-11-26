@@ -71,14 +71,23 @@ def scores(con, people: list[str], venues: list[str]) -> pd.DataFrame:
     if _has(con, "vis_item"):
         it = con.execute(
             """SELECT person, kind, venue, venue_raw, year, evidence_url, source FROM pii.vis_item
-               WHERE person IN (SELECT unnest(?))
+               WHERE (person IN (SELECT unnest(?))
+                      OR person IN (SELECT alias FROM alias WHERE name IN (SELECT unnest(?))))
                  AND (kind IN ('acm_fellow', 'ieee_fellow') OR venue IN (SELECT unnest(?)))""",
-            [people, venues]).df()
+            [people, people, venues]).df()
         checked = set(r[0] for r in con.execute("SELECT person FROM pii.vis_checked").fetchall()) \
             if _has(con, "vis_checked") else set()
     else:
         it = pd.DataFrame(columns=["person", "kind", "venue", "venue_raw", "year", "evidence_url", "source"])
         checked = set()
+    # records found under another spelling of the same person (DBLP alias) belong to the DBLP name
+    from fp.ingest.visibility import canonical_names
+
+    canon = canonical_names(con)
+    if len(it):
+        it["person"] = it.person.map(lambda p: canon.get(p, p))
+        it = it[it.person.isin(set(people))]
+    checked = {canon.get(p, p) for p in checked}
     names = sorted(set(pc.index) | set(it.person))
     df = pd.DataFrame({"name": names})
     df["P"] = df.name.map(pc.P).fillna(0).astype(int)
