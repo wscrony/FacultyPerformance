@@ -68,25 +68,25 @@ def scores(con, people: list[str], venues: list[str]) -> pd.DataFrame:
            FROM dblp_authorship a JOIN dblp_paper p USING (key) LEFT JOIN paper_cites c ON c.key = p.key
            WHERE a.name IN (SELECT unnest(?)) AND p.venue IN (SELECT unnest(?)) GROUP BY 1""",
         [people, venues]).df().set_index("name")
+    from fp.ingest.visibility import canonical_names
+
+    canon, pset = canonical_names(con), set(people)
     if _has(con, "vis_item"):
         it = con.execute(
             """SELECT person, kind, venue, venue_raw, year, evidence_url, source FROM pii.vis_item
                WHERE (person IN (SELECT unnest(?))
-                      OR person IN (SELECT alias FROM alias WHERE name IN (SELECT unnest(?))))
+                      OR person IN (SELECT unnest(?)))
                  AND (kind IN ('acm_fellow', 'ieee_fellow') OR venue IN (SELECT unnest(?)))""",
-            [people, people, venues]).df()
+            [people, [a for a, n in canon.items() if n in pset], venues]).df()
         checked = set(r[0] for r in con.execute("SELECT person FROM pii.vis_checked").fetchall()) \
             if _has(con, "vis_checked") else set()
     else:
         it = pd.DataFrame(columns=["person", "kind", "venue", "venue_raw", "year", "evidence_url", "source"])
         checked = set()
-    # records found under another spelling of the same person (DBLP alias) belong to the DBLP name
-    from fp.ingest.visibility import canonical_names
-
-    canon = canonical_names(con)
+    # records found under another spelling of the same person belong to the kept name
     if len(it):
         it["person"] = it.person.map(lambda p: canon.get(p, p))
-        it = it[it.person.isin(set(people))]
+        it = it[it.person.isin(pset)]
     checked = {canon.get(p, p) for p in checked}
     names = sorted(set(pc.index) | set(it.person))
     df = pd.DataFrame({"name": names})

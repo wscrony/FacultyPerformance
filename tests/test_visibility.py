@@ -125,3 +125,26 @@ def test_alias_spelling_records_merge_into_one_person(monkeypatch):
     d = VS.scores(con, ["A"], ["sigmod", "vldb"])
     assert list(d.name).count("A") == 1 and "A-x" not in set(d.name)
     assert d.set_index("name").loc["A"].pc == 2
+
+
+def test_dedupe_faculty_alias_and_scholar_id():
+    from fp.ingest import csrankings
+
+    con = duckdb.connect()
+    con.execute("CREATE TABLE cs_faculty (name VARCHAR, affiliation VARCHAR, homepage VARCHAR, scholarid VARCHAR, "
+                "orcid VARCHAR)")
+    con.execute("CREATE TABLE cs_pub (name VARCHAR, dept VARCHAR, area VARCHAR, year INT, count INT, adj DOUBLE)")
+    con.execute("CREATE TABLE alias (alias VARCHAR, name VARCHAR)")
+    con.execute("CREATE TABLE dblp_authorship (key VARCHAR, name VARCHAR)")
+    con.execute("INSERT INTO alias VALUES ('S J Lee', 'S-J Lee'), ('Moved', 'Moved X')")
+    con.execute("""INSERT INTO cs_faculty VALUES
+        ('S J Lee', 'KAIST', NULL, 'g1', NULL), ('S-J Lee', 'KAIST', NULL, 'g1', NULL),
+        ('J Lee', 'SNU', NULL, 'g2', NULL), ('J Lee 0001', 'SNU', NULL, 'g2', NULL),
+        ('Other', 'SNU', NULL, 'NOSCHOLARPAGE', NULL), ('Other2', 'SNU', NULL, 'NOSCHOLARPAGE', NULL),
+        ('Moved', 'A', NULL, NULL, NULL), ('Moved X', 'B', NULL, NULL, NULL)""")
+    con.execute("INSERT INTO dblp_authorship VALUES ('1', 'J Lee'), ('2', 'J Lee 0001'), ('3', 'J Lee 0001')")
+    con.execute("INSERT INTO cs_pub VALUES ('J Lee', 'SNU', 'db', 2020, 1, 1), ('J Lee 0001', 'SNU', 'db', 2020, 2, 2)")
+    assert csrankings.dedupe_faculty(con) == 2
+    assert sorted(r[0] for r in con.execute("SELECT name FROM cs_faculty").fetchall()) == \
+        ["J Lee 0001", "Moved", "Moved X", "Other", "Other2", "S-J Lee"]
+    assert con.execute("SELECT sum(count) FROM cs_pub WHERE name = 'J Lee 0001'").fetchone()[0] == 3

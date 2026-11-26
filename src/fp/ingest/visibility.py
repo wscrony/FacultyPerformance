@@ -309,7 +309,10 @@ def all_people(con) -> dict[str, int | None]:
 def canonical_names(con) -> dict[str, str]:
     """DBLP alias → the name DBLP files the papers under. CSrankings lists some people once per spelling
     (Sung Ju Lee 0001 / Sung-Ju Lee 0001); those spellings are one person here."""
-    return dict(con.execute("SELECT alias, name FROM alias WHERE alias <> name").fetchall())
+    out = dict(con.execute("SELECT alias, name FROM alias WHERE alias <> name").fetchall())
+    if con.execute("SELECT count(*) FROM duckdb_tables() WHERE table_name = 'faculty_merge'").fetchone()[0]:
+        out.update(con.execute("SELECT alias, name FROM faculty_merge").fetchall())
+    return out
 
 
 def load_cache(path: Path = CACHE) -> dict[str, dict]:

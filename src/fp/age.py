@@ -69,6 +69,8 @@ def create_views(con, this_year: int | None = None) -> None:
         topvenues.apply(con)  # user's top-venue choice (temp table shadows main.venue)
     _ensure_author_pub(con)
     _create_cites_view(con)
+    if not _has_table(con, "faculty_merge"):  # bundles made before CSrankings duplicate rows were merged
+        con.execute("CREATE TEMP TABLE IF NOT EXISTS faculty_merge (alias VARCHAR, name VARCHAR)")
     if not _has_table(con, "inst_map"):
         con.execute("CREATE TEMP TABLE IF NOT EXISTS inst_map (oa_name VARCHAR, institution VARCHAR, "
                     "method VARCHAR, support INTEGER)")
@@ -102,7 +104,8 @@ def create_views(con, this_year: int | None = None) -> None:
     SELECT name, first(affiliation) AS affiliation FROM cs_faculty GROUP BY name
     UNION ALL
     SELECT k.person, NULL FROM korean_eff k
-    WHERE k.is_korean AND k.person NOT IN (SELECT name FROM cs_faculty);
+    WHERE k.is_korean AND k.person NOT IN (SELECT name FROM cs_faculty)
+      AND k.person NOT IN (SELECT alias FROM faculty_merge);  -- a faculty member's other spelling
 
     -- latest affiliation seen on the person's own papers (OpenAlex): most frequent institution in the latest year
     CREATE OR REPLACE TEMP VIEW cur_affil AS

@@ -362,6 +362,9 @@ def load(con, sha: str) -> dict[str, int]:
         con.execute(LOAD_SQL.format(d=snapshot_dir(sha), raw=raw_dir(sha)))
         _merge_manual_aliases(con)
         con.execute(DERIVED_SQL)
+        from fp.ingest import csrankings  # the alias table is fresh now: drop CSrankings' per-spelling rows
+
+        csrankings.dedupe_faculty(con)
         con.execute("INSERT OR REPLACE INTO snapshot VALUES ('dblp', ?, now())", [sha])
         con.execute("COMMIT")
     except Exception:
