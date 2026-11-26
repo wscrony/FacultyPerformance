@@ -28,6 +28,7 @@ from fp import paths
 
 KINDS = ["acm_fellow", "ieee_fellow", "pc_chair", "general_chair", "steering", "best_paper", "keynote"]
 CACHE = paths.SNAPSHOTS / "visibility.jsonl"
+MANUAL = paths.SNAPSHOTS / "visibility_manual.jsonl"  # hand-entered records (kept across re-searches)
 BPA_URL = "https://jeffhuang.com/best_paper_awards/"
 ACM_URL = ("https://en.wikipedia.org/w/index.php?title=List_of_fellows_of_the_Association_for_Computing_Machinery"
            "&action=raw")
@@ -345,6 +346,25 @@ def judge_all(rows, model: str = "sonnet", judge=None, batch: int = 2, workers: 
     return {"cached_before": len(done), **count}
 
 
+def add_manual(person: str, kind: str, venue: str | None = None, year: int | None = None,
+               evidence_url: str | None = None, path: Path = MANUAL) -> dict:
+    """Hand-entered record (e.g. a role the web doesn't show). Applied at the next store()."""
+    if kind not in KINDS:
+        raise ValueError(f"kind must be one of {KINDS}")
+    rec = {"person": person, "kind": kind, "venue": venue, "year": year, "evidence_url": evidence_url,
+           "added": str(date.today())}
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "a") as fh:
+        fh.write(json.dumps(rec, ensure_ascii=False) + "\n")
+    return rec
+
+
+def load_manual(path: Path = MANUAL) -> list[dict]:
+    if not path.exists():
+        return []
+    return [json.loads(x) for x in path.read_text().splitlines() if x.strip()]
+
+
 def store(con, path: Path = CACHE) -> dict:
     """Rebuild pii.vis_item from the LLM cache + the two public lists."""
     con.execute(PII_SCHEMA)
@@ -357,6 +377,11 @@ def store(con, path: Path = CACHE) -> dict:
             rows.append({"person": p, "kind": it["kind"], "venue_raw": None if fellow else it.get("venue"),
                          "venue": None if fellow else venue_key(it.get("venue"), aliases), "year": it.get("year"),
                          "evidence_url": it.get("evidence_url"), "source": r.get("source")})
+    for m in load_manual():
+        fellow = m["kind"] in ("acm_fellow", "ieee_fellow")
+        rows.append({"person": m["person"], "kind": m["kind"], "venue_raw": None if fellow else m.get("venue"),
+                     "venue": None if fellow else venue_key(m.get("venue"), aliases), "year": m.get("year"),
+                     "evidence_url": m.get("evidence_url"), "source": "manual"})
     ppl = all_people(con)
     if BPA_FILE.exists():
         rows += best_paper_items(con, set(ppl))

@@ -42,14 +42,15 @@ def scores(con, people: list[str], venues: list[str]) -> pd.DataFrame:
         [people, venues]).df().set_index("name")
     if _has(con, "vis_item"):
         it = con.execute(
-            """SELECT person, kind, venue, venue_raw, year, evidence_url FROM pii.vis_item
+            """SELECT person, kind, venue, venue_raw, year, evidence_url, source FROM pii.vis_item
                WHERE person IN (SELECT unnest(?))
                  AND (kind IN ('acm_fellow', 'ieee_fellow') OR venue IN (SELECT unnest(?)))""",
             [people, venues]).df()
         checked = set(r[0] for r in con.execute("SELECT person FROM pii.vis_checked").fetchall()) \
             if _has(con, "vis_checked") else set()
     else:
-        it, checked = pd.DataFrame(columns=["person", "kind", "venue", "venue_raw", "year", "evidence_url"]), set()
+        it = pd.DataFrame(columns=["person", "kind", "venue", "venue_raw", "year", "evidence_url", "source"])
+        checked = set()
     names = sorted(set(pc.index) | set(it.person))
     df = pd.DataFrame({"name": names})
     df["P"] = df.name.map(pc.P).fillna(0).astype(int)
@@ -63,7 +64,8 @@ def scores(con, people: list[str], venues: list[str]) -> pd.DataFrame:
     def ev(g):
         g = g.sort_values(["kind", "year"])
         return " · ".join(f"{KIND_KO[k]}" + (f" {B.venue_label(v)}" if isinstance(v, str) and v else "")
-                          + (f" {int(y)}" if pd.notna(y) else "") for k, v, y in zip(g.kind, g.venue, g.year))
+                          + (f" {int(y)}" if pd.notna(y) else "") + (" (수동)" if src == "manual" else "")
+                          for k, v, y, src in zip(g.kind, g.venue, g.year, g.source))
 
     evid = it.groupby("person").apply(ev, include_groups=False) if len(it) else pd.Series(dtype=str)
     url = it.dropna(subset=["evidence_url"]).groupby("person").evidence_url.first() if len(it) else pd.Series(dtype=str)
