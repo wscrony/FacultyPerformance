@@ -255,7 +255,7 @@ else:
     fa["rank_txt"] = [f"{r}위 / {n}명" for r, n in zip(fa["rank"], fa.n_abroad)]
     fa["fo"] = fa.main_field.map(order)
     fa = fa.sort_values(["fo", "rank"])
-    mx = int(fa.field_papers.max() or 1)
+    mx = ui.vmax(fa.field_papers)
     st.caption(f"주 분야 = {f.start}–{f.end} 논문이 가장 많은 분야. 국내 환산 순위 = 같은 분야·기간 국내 교수들 사이에 "
                "넣었을 때의 순위.")
     ui.people_table(

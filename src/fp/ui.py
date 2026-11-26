@@ -103,6 +103,12 @@ def _close(c) -> None:
         pass
 
 
+def vmax(s) -> int:
+    """Upper bound for a ProgressColumn: the column max, or 1 when it is empty / all missing / zero."""
+    m = pd.Series(s, dtype="float64").max()
+    return int(m) if pd.notna(m) and m > 0 else 1
+
+
 def require_db():
     try:
         con()
