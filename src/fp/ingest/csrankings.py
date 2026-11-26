@@ -117,6 +117,33 @@ def apply_overrides(con) -> None:
     con.execute("UPDATE venue SET next_tier = TRUE WHERE venue IN (SELECT unnest(?))", [sorted(NOT_TOP)])
 
 
+def dedupe_faculty(con) -> int:
+    """CSrankings lists some people more than once, one row per spelling. Merge, within an institution:
+    1. a DBLP alias whose real name is listed too (Sung Ju Lee 0001 / Sung-Ju Lee 0001);
+    2. names sharing a Google Scholar ID (Jinho Lee / Jinho Lee 0001) → the name with the most DBLP papers.
+    The dropped name's CSrankings counts (cs_pub) move to the kept name; its DBLP papers are not moved (an
+    unsuffixed DBLP name can mix several people). faculty_merge records alias → kept name for other tables.
+    Rows at a different institution (moves, joint posts) stay."""
+    has_alias = con.execute("SELECT count(*) FROM duckdb_tables() WHERE table_name = 'alias'").fetchone()[0]
+    npap = ("(SELECT count(*) FROM dblp_authorship d WHERE d.name = f.name)"
+            if con.execute("SELECT count(*) FROM duckdb_tables() WHERE table_name = 'dblp_authorship'").fetchone()[0]
+            else "0")
+    con.execute(f"""CREATE OR REPLACE TABLE faculty_merge AS
+        WITH a AS ({"SELECT f.name AS alias, g.name FROM cs_faculty f JOIN alias al ON al.alias = f.name AND al.name <> f.name "
+                    "JOIN cs_faculty g ON g.name = al.name AND g.affiliation = f.affiliation" if has_alias else
+                    "SELECT NULL::VARCHAR AS alias, NULL::VARCHAR AS name WHERE FALSE"}),
+             s AS (SELECT f.name, f.affiliation, f.scholarid, {npap} AS n FROM cs_faculty f
+                   WHERE f.scholarid IS NOT NULL AND f.scholarid NOT IN ('', 'NOSCHOLARPAGE')
+                     AND f.name NOT IN (SELECT alias FROM a)),
+             k AS (SELECT affiliation, scholarid, arg_max(name, n * 1000 - length(name)) AS keep FROM s
+                   GROUP BY 1, 2 HAVING count(*) > 1)
+        SELECT DISTINCT alias, name FROM a
+        UNION SELECT s.name, k.keep FROM s JOIN k USING (affiliation, scholarid) WHERE s.name <> k.keep""")
+    if con.execute("SELECT count(*) FROM duckdb_tables() WHERE table_name = 'cs_pub'").fetchone()[0]:
+        con.execute("UPDATE cs_pub SET name = m.name FROM faculty_merge m WHERE cs_pub.name = m.alias")
+    return con.execute("DELETE FROM cs_faculty WHERE name IN (SELECT alias FROM faculty_merge)").fetchone()[0]
+
+
 def load(con, sha: str, src_dir: Path) -> dict[str, int]:
     venues = parse_config((src_dir / "config.ts").read_text())
     con.execute("BEGIN")
@@ -143,6 +170,7 @@ def load(con, sha: str, src_dir: Path) -> dict[str, int]:
                        CAST(adjustedcount AS DOUBLE)
                 FROM read_csv('{d}/generated-author-info.csv', header=true, all_varchar=true)"""
         )
+        dedupe_faculty(con)
         con.execute(
             "INSERT OR REPLACE INTO snapshot VALUES ('csrankings', ?, ?)",
             [sha, datetime.now(timezone.utc).replace(tzinfo=None)],
