@@ -63,8 +63,8 @@ def _compute(y0: int, y1: int, amin: int, amax: int, nt: bool, min_p: int, tv: f
     krp = krp[krp.field != "전체"]
     # sub-field (CSrankings area) and per-venue counts, for the sub-field picker in each field tab
     rbf = B.BF(start=max(y0, y1 - 1), end=y1, next_tier=nt)
-    subs = {by: (B.person_sub_counts(c, list(cand.name), bf, by), B.person_sub_counts(c, list(cand.name), rbf, by),
-                 B.kr_faculty_sub_counts(c, bf, by)) for by in ("area", "venue")}
+    subs = (B.person_sub_counts(c, list(cand.name), bf, "venue"), B.person_sub_counts(c, list(cand.name), rbf, "venue"),
+            B.kr_faculty_sub_counts(c, bf, "venue"))  # per venue; sub-fields are unions of venues
     out = {}
     for k in B.FIELDS:
         d = pf[(pf.field == k) & (pf.papers >= min_p)][["name", "papers"]].rename(columns={"papers": "field"})
@@ -322,25 +322,29 @@ for t, (k, d) in zip(tabs[2:], per_field.items()):
         tt = q1.multiselect("유형 좁히기", types, default=types, key=f"rc_t_{k}")
         only_main = q2.toggle(f"주 분야가 {k}인 사람만", value=True, key=f"rc_main_{k}",
                               help=f"끄면 주 분야는 다르지만 {k} 논문도 {min_p}편 이상인 사람까지 보입니다")
-        kind, areas = B.field_subs(c, k, nt)
-        opts = [""] + ([f"area:{a}" for a in areas] if kind == "area" else []) + [
-            f"venue:{v}" for v in B.field_venues(c, [k], nt)]
-        sel = st.selectbox(
-            "세부 분야", opts, key=f"rc_sub_{k}",
-            format_func=lambda o, k=k: f"전체 {k}" if not o else (
-                B.AREA_NAMES.get(o[5:], o[5:]) if o.startswith("area:") else f"학회 · {B.venue_label(o[6:])}"),
-            help="세부 분야(CSrankings 분류)나 학회 하나만 골라 그 논문 수로 다시 정렬합니다")
+        va = B.field_venue_areas(c, k, nt)
+        areas = sorted(set(va.values()))
+        opts = ([f"area:{x}" for x in areas] if len(areas) > 1 else []) + [f"venue:{v}" for v in va]
+        sel = st.multiselect(
+            "세부 분야 · 학회 (여러 개 선택 가능, 비우면 전체)", opts, key=f"rc_sub_{k}",
+            format_func=lambda o: (B.AREA_NAMES.get(o[5:], o[5:]) if o.startswith("area:")
+                                   else f"학회 · {B.venue_label(o[6:])}"),
+            help="고른 세부 분야(CSrankings 분류)·학회의 논문만 합쳐 다시 세고 정렬합니다. 겹치는 논문은 한 번만 셉니다.")
         lbl, tbf = k, B.BF(start=y0, end=y1, next_tier=nt, fields=[k])
         if sel:
-            by_, sk = sel.split(":", 1)
-            cnt, rcnt, krc = SUBS[by_]
-            lbl = B.AREA_NAMES.get(sk, sk) if by_ == "area" else B.venue_label(sk)
-            tbf = B.BF(start=y0, end=y1, next_tier=nt, **({"areas": [sk]} if by_ == "area" else {"venues": [sk]}))
-            d = d.assign(field=d.name.map(cnt[cnt["sub"] == sk].set_index("name").papers).fillna(0).astype(int))
+            vs = set()
+            for o in sel:
+                by_, sk = o.split(":", 1)
+                vs |= {v for v, a_ in va.items() if a_ == sk} if by_ == "area" else {sk}
+            cnt, rcnt, krc = SUBS
+            names = [B.AREA_NAMES.get(o[5:], o[5:]) if o.startswith("area:") else B.venue_label(o[6:]) for o in sel]
+            lbl = " + ".join(names) if len(names) <= 3 else f"{names[0]} 외 {len(names) - 1}개"
+            tbf = B.BF(start=y0, end=y1, next_tier=nt, venues=sorted(vs))
+            d = d.assign(field=d.name.map(cnt[cnt["sub"].isin(vs)].groupby("name").papers.sum()).fillna(0).astype(int))
             d = d[d.field >= min_p].copy()
-            d["recent"] = d.name.map(rcnt[rcnt["sub"] == sk].set_index("name").papers).fillna(0).astype(int)
+            d["recent"] = d.name.map(rcnt[rcnt["sub"].isin(vs)].groupby("name").papers.sum()).fillna(0).astype(int)
             d["per_year"] = (d.field / d.active).round(2)
-            kp = krc[krc["sub"] == sk].papers
+            kp = krc[krc["sub"].isin(vs)].groupby("name").papers.sum()
             d["kr_equiv"] = [f"{1 + int((kp > n).sum())}위 / {len(kp)}명" for n in d.field]
             d["kr_pct"] = [max(1, round(100 * (kp >= n).mean())) if len(kp) else None for n in d.field]
             d = d.sort_values([sort, "field", "name"], ascending=[False, False, True], kind="mergesort")

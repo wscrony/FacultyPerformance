@@ -367,13 +367,11 @@ def area_sql(v: str = "v") -> str:
     return f"CASE {exc} ELSE {v}.area END"
 
 
-def field_subs(con, field: str, next_tier: bool = False) -> tuple[str, list[str]]:
-    """How a department field splits: ('area', areas) when it spans several areas, else ('venue', its venues)."""
-    rows = con.execute(
-        f"SELECT DISTINCT {area_sql('v')} AS a, v.venue FROM venue v WHERE ({_FIELD_SQL}) = ? AND (? OR NOT v.next_tier)",
-        [field, next_tier]).fetchall()
-    areas = sorted({a for a, _ in rows})
-    return ("area", areas) if len(areas) > 1 else ("venue", sorted({v for _, v in rows}))
+def field_venue_areas(con, field: str, next_tier: bool = False) -> dict[str, str]:
+    """venue → sub-field (area) for the venues of a department field (top only unless next_tier)."""
+    return dict(con.execute(
+        f"SELECT v.venue, {area_sql('v')} FROM venue v WHERE ({_FIELD_SQL}) = ? AND (? OR NOT v.next_tier) ORDER BY 1",
+        [field, next_tier]).fetchall())
 
 
 def _sub_expr(by: str) -> str:

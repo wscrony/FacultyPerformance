@@ -569,12 +569,33 @@ def top_venue_editor(expanded: bool = False) -> None:
             _save_top(set(df[df.top & df.countable].venue) | set(sel.venue))
             st.rerun()
 
-        q = st.text_input("학회 찾기 (개별로 고치기)", key="tv_q", placeholder="예: SoCG, CAV, CIKM")
+        s1, s2 = st.columns([2, 3])
+        q = s1.text_input("학회 찾기 (개별로 고치기)", key="tv_q", placeholder="예: SoCG, CAV, CIKM")
+        flds = [k for k in B.FIELDS if k in set(df.field)]
+        ff = s2.multiselect("분야로 좁히기", flds, key="tv_ff", format_func=lambda k: f"{k} · {B.FIELDS[k][0]}")
         view = df[df.name.str.contains(q, case=False) | df.venue.str.contains(q, case=False)] if q else df
+        if ff:
+            view = view[view.field.isin(ff)]
+        # bulk: tick / untick everything shown (after the search and field filter), or clear all
+        shown = set(view[view.countable].venue)
+        cur_top = set(df[df.top & df.countable].venue)
+        w = "아래 목록에 보이는 학회" if (q or ff) else "모든 학회"
+        k1, k2, k3, _ = st.columns([1.3, 1.3, 1, 2.4])
+        if k1.button("보이는 학회 모두 top", key="tv_all_on", help=f"{w}를 top으로 (바로 저장)"):
+            _save_top(cur_top | shown)
+            st.rerun()
+        if k2.button("보이는 학회 모두 해제", key="tv_all_off", help=f"{w}를 top에서 뺌 (바로 저장)"):
+            _save_top(cur_top - shown)
+            st.rerun()
+        if k3.button("전체 해제", key="tv_clear", help="모든 학회를 top에서 뺀 뒤 원하는 학회만 체크하세요 (바로 저장)"):
+            _save_top(set())
+            st.rerun()
+        if not cur_top:
+            st.warning("top 학회가 하나도 없어 모든 페이지의 논문 수가 0입니다. 학회를 체크하고 저장하세요.")
         ed = st.data_editor(
             view[["top", "name", "field", "kiise", "bk21", "kaist", "snu", "postech", "avg", "csr", "data",
                   "venue"]].reset_index(drop=True),
-            hide_index=True, width="stretch", height=460, key=f"tv_editor_{q}",
+            hide_index=True, width="stretch", height=460, key=f"tv_editor_{q}_{'-'.join(ff)}_{topvenues.version()}",
             disabled=["name", "field", "kiise", "bk21", "kaist", "snu", "postech", "avg", "csr", "data", "venue"],
             column_config={
                 "top": st.column_config.CheckboxColumn("top", help="체크 = top 학회로 셈 (논문 데이터가 있는 학회만 적용)"),
