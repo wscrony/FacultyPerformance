@@ -37,6 +37,7 @@ def _db():
     con.execute("CREATE TABLE dblp_paper (key VARCHAR, venue VARCHAR, year INT, title VARCHAR)")
     con.execute("CREATE TABLE dblp_authorship (key VARCHAR, name VARCHAR)")
     con.execute("CREATE TABLE paper_cites (key VARCHAR, cited_by INT)")
+    con.execute("CREATE TABLE alias (alias VARCHAR, name VARCHAR)")
     con.execute("ATTACH ':memory:' AS pii")
     con.execute(V.PII_SCHEMA)
     for i in range(120):  # A: 120 SIGMOD papers, 300 cites each → P capped at 100, C capped at 20 000
@@ -110,3 +111,17 @@ def test_remove_rules():
     assert not _removed(r, [{"person": "B"}])
     assert _removed(r, [{"person": "A", "kind": "pc_chair", "venue": "ICDE", "year": 2006}])
     assert not _removed(r, [{"person": "A", "kind": "pc_chair", "year": 2007}])
+
+
+def test_alias_spelling_records_merge_into_one_person(monkeypatch):
+    from fp import age
+
+    monkeypatch.setattr(age, "create_views", lambda con: None)
+    con = _db()
+    con.execute("INSERT INTO alias VALUES ('A-x', 'A')")
+    # the web search ran for both spellings and found the same PC chair; plus one only under the alias
+    for p, y in [("A", 2020), ("A-x", 2020), ("A-x", 2021)]:
+        con.execute("INSERT INTO pii.vis_item VALUES (?, 'pc_chair', 'SIGMOD', 'sigmod', ?, 'u', 's')", [p, y])
+    d = VS.scores(con, ["A"], ["sigmod", "vldb"])
+    assert list(d.name).count("A") == 1 and "A-x" not in set(d.name)
+    assert d.set_index("name").loc["A"].pc == 2

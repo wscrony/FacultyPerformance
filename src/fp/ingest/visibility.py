@@ -299,9 +299,17 @@ def all_people(con) -> dict[str, int | None]:
     from fp.ingest import llm_position as L
 
     age.create_views(con)
-    ppl = {r[0] for r in L.faculty_targets(con)} | {r[0] for r in L.targets(con, max_acad_age=99)}
+    canon = canonical_names(con)
+    ppl = {canon.get(r[0], r[0]) for r in L.faculty_targets(con)} | \
+          {canon.get(r[0], r[0]) for r in L.targets(con, max_acad_age=99)}
     ages = dict(con.execute("SELECT person, academic_age FROM person_age").fetchall())
     return {p: ages.get(p) for p in ppl}
+
+
+def canonical_names(con) -> dict[str, str]:
+    """DBLP alias → the name DBLP files the papers under. CSrankings lists some people once per spelling
+    (Sung Ju Lee 0001 / Sung-Ju Lee 0001); those spellings are one person here."""
+    return dict(con.execute("SELECT alias, name FROM alias WHERE alias <> name").fetchall())
 
 
 def load_cache(path: Path = CACHE) -> dict[str, dict]:
