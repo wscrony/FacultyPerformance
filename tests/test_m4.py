@@ -413,3 +413,15 @@ def test_batched_title_search_matches_each_title():
     got = citations.fetch_titles([("k1", "Paper One.", 2018), ("k2", "Paper Two", 2020)], S(), None)
     assert got["k1"] == ("W1,W2", 30)
     assert got["k2"] == (None, None)  # year off by 10 → not the same paper
+
+
+def test_candidates_sort_by_cohort_percentile(con):  # noqa: F811
+    """sort='pctl' used to fail: DuckDB can't reuse the subquery alias cohort_pctl in the same SELECT."""
+    _add_author_pub(con)
+    pool.classify(con, since=2016, min_pubs=1, use_llm=False)
+    f = metrics.Filter(start=2016, end=2026)
+    for scope in ("kr", "korean", "world"):
+        rows, cols = age.candidates(con, f, scope=scope, sort="pctl")
+        i = cols.index("cohort_pctl")
+        p = [r[i] for r in rows if r[i] is not None]
+        assert p == sorted(p, reverse=True)
