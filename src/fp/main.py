@@ -67,12 +67,15 @@ pg = st.navigation({
     "탐색": [
         st.Page("app.py", title="검색 · 비교", icon=":material/search:"),
         st.Page("views/recruit.py", title="교수 초빙 후보", icon=":material/person_search:", url_path="recruit"),
-        # Visibility 점수 (views/visibility.py) hidden by user request 2026-11-27; file kept, FP_SHOW_VISIBILITY=1 shows it
-        *([st.Page("views/visibility.py", title="Visibility 점수", icon=":material/military_tech:",
-                   url_path="visibility")] if os.environ.get("FP_SHOW_VISIBILITY") == "1" else []),
+        # Visibility 점수: not in the menu (user request 2026-11-27) but reachable at /visibility;
+        # FP_SHOW_VISIBILITY=1 lists it in the menu again
+        st.Page("views/visibility.py", title="Visibility 점수", icon=":material/military_tech:", url_path="visibility"),
     ],
     "설정": [st.Page("views/venues.py", title="Top 학회 설정", icon=":material/tune:", url_path="venues")],
 })
+if os.environ.get("FP_SHOW_VISIBILITY") != "1":
+    st.html("<style>[data-testid='stSidebarNav'] li:has(a[href$='/visibility']),"
+            "[data-testid='stSidebarNav'] a[href$='/visibility'] {display: none !important;}</style>")
 st.sidebar.caption("Developed by Wook-Shin Han")
 st.sidebar.info(
     "**데이터 출처:** 모든 데이터는 공개(open) 데이터로 만들었습니다 — CSrankings(교수 명단·소속·홈페이지), "
