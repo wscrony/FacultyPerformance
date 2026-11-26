@@ -14,9 +14,10 @@ Y = ui.THIS_YEAR
 st.title("Visibility 점수")
 st.caption(
     "분야 안에서 학계 visibility를 공개 데이터만으로 0–100점으로 계산합니다. "
-    "**V = 0.2·min(논문, 100) + 0.001·min(인용, 20,000) + 10·(ACM Fellow + IEEE Fellow + PC Chair + General Chair + "
-    "Steering/Endowment) + 5·(Best Paper + Keynote)** — 논문·인용은 그 분야 top 학회 누적, Chair·Steering·Best Paper·"
-    "Keynote도 그 분야 top 학회 것만 인정(여러 번이어도 한 번), Fellow는 분야와 무관하게 인정.")
+    "**V = 0.2·min(논문, 100) + 0.001·min(인용, 20,000) + 10·(ACM Fellow + IEEE Fellow) + "
+    "10·(PC Chair 횟수 + General Chair 횟수 + Steering/Endowment 학회 수) + 5·(Best Paper 횟수 + Keynote 횟수)**, "
+    f"각 횟수는 최대 {VS.MAX_COUNT}회, 총점 최대 {VS.TOTAL_CAP}점. 논문·인용은 그 분야 top 학회 누적, 경력은 그 분야 "
+    "top 학회 것만 인정(같은 학회·같은 해는 1회), Fellow는 분야와 무관하게 인정.")
 ui.top_venue_status()
 
 f1, f2, f3 = st.columns([2.2, 3, 2.2])
@@ -80,7 +81,7 @@ n_srch = int(df.searched.sum())
 ui.kpis([
     ("대상자", f"{len(df):,}명", f"{label} top 학회 논문 또는 경력 기록이 있는 사람"),
     ("50점 이상", f"{int((df.score >= 50).sum())}명", None),
-    ("경력 항목 1개 이상", f"{int((df[[c_ for c_, _ in VS.ITEMS.values()]].sum(axis=1) > 0).sum())}명", None),
+    ("경력 기록 1건 이상", f"{int((df[[c_ for c_, _ in VS.ITEMS.values()]].sum(axis=1) > 0).sum())}명", None),
     ("웹 검색 완료", f"{n_srch:,}명", "나머지는 공개 명단(ACM Fellow·Best Paper)만 반영"),
 ])
 if not VS._has(c, "vis_item"):
@@ -92,9 +93,10 @@ elif n_srch == 0:
 
 show = df[["rank", "name", "institution", "type", "acad_age", "score", "P", "C", "acm", "ieee", "pc", "gc", "sc",
            "bp", "kn", "evidence", "evidence_url", "searched"]]
-chk = {col: st.column_config.CheckboxColumn(lbl, help=f"{pts}점", width="small")
-       for (col, pts), lbl in zip(VS.ITEMS.values(), ["ACM", "IEEE", "PC Chair", "General Chair", "Steering",
-                                                      "Best Paper", "Keynote"])}
+chk = {col: (st.column_config.CheckboxColumn(lbl, help=f"{pts}점", width="small") if kind in VS.FELLOWS else
+              st.column_config.NumberColumn(lbl, help=f"횟수 × {pts}점 (최대 {VS.MAX_COUNT}회)", width="small"))
+       for (kind, (col, pts)), lbl in zip(VS.ITEMS.items(), ["ACM", "IEEE", "PC Chair", "General Chair", "Steering",
+                                                             "Best Paper", "Keynote"])}
 ui.people_table(
     show, f"vs_tab_{field}_{label}", B.BF(start=1970, end=Y, venues=venues), height=min(640, 36 * len(show) + 40),
     column_config={

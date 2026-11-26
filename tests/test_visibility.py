@@ -59,8 +59,26 @@ def test_scores_formula_caps_and_field_rules(monkeypatch):
     monkeypatch.setattr(age, "create_views", lambda con: None)
     df = VS.scores(_db(), ["A", "B"], ["sigmod", "vldb", "icde"]).set_index("name")
     a = df.loc["A"]
-    # 20 (P cap) + 20 (C cap) + ACM 10 + GC 10 (two chairs count once) + keynote 5; DASFAA (not top) ignored
-    assert (a.P, a.C, a.acm, a.gc, a.pc, a.kn) == (120, 36000, 1, 1, 0, 1)
-    assert a.score == 65.0
+    # 20 (P cap) + 20 (C cap) + ACM 10 + GC 2×10 (SIGMOD, VLDB) + keynote 5; DASFAA (not top) ignored
+    assert (a.P, a.C, a.acm, a.gc, a.pc, a.kn) == (120, 36000, 1, 2, 0, 1)
+    assert a.score == 75.0
     assert "B" not in df.index  # a fellow with no paper / record in the field is not listed there
     assert isinstance(df, pd.DataFrame)
+
+
+def test_counts_dedupe_and_caps(monkeypatch):
+    from fp import age
+
+    monkeypatch.setattr(age, "create_views", lambda con: None)
+    con = _db()
+    rows = [("A", "general_chair", "VLDB", "vldb", None, "manual"),  # yearless duplicate of VLDB 2020 → dropped
+            ("A", "general_chair", "VLDB", "vldb", 2020, "manual"),  # same record as the web one → once
+            ("A", "general_chair", "ICDE", "icde", 2021, "s"), ("A", "general_chair", "ICDE", "icde", 2022, "s"),
+            ("A", "steering", "VLDB", "vldb", 2001, "s"), ("A", "steering", "VLDB", "vldb", 2005, "s"),
+            ("A", "acm_fellow", None, None, 2015, "wikipedia-acm")]
+    for p, k, raw, v, y, src in rows:
+        con.execute("INSERT INTO pii.vis_item VALUES (?, ?, ?, ?, ?, 'u', ?)", [p, k, raw, v, y, src])
+    a = VS.scores(con, ["A"], ["sigmod", "vldb", "icde"]).set_index("name").loc["A"]
+    # GC: SIGMOD 2020, VLDB 2020, ICDE 2021, ICDE 2022 = 4 → capped at 3; steering: VLDB twice = 1 conference
+    assert (a.gc, a.sc, a.acm) == (4, 1, 1)
+    assert a.score == min(100, 20 + 20 + 10 + 30 + 10 + 5)
