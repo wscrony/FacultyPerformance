@@ -322,20 +322,13 @@ for t, (k, d) in zip(tabs[2:], per_field.items()):
         tt = q1.multiselect("유형 좁히기", types, default=types, key=f"rc_t_{k}")
         only_main = q2.toggle(f"주 분야가 {k}인 사람만", value=True, key=f"rc_main_{k}",
                               help=f"끄면 주 분야는 다르지만 {k} 논문도 {min_p}편 이상인 사람까지 보입니다")
-        va = B.field_venue_areas(c, k, nt)
-        areas = sorted(set(va.values()))
-        opts = ([f"area:{x}" for x in areas] if len(areas) > 1 else []) + [f"venue:{v}" for v in va]
+        opts, va = B.sub_options(c, [k], nt)
         sel = st.multiselect(
-            "세부 분야 · 학회 (여러 개 선택 가능, 비우면 전체)", opts, key=f"rc_sub_{k}",
-            format_func=lambda o: (B.AREA_NAMES.get(o[5:], o[5:]) if o.startswith("area:")
-                                   else f"학회 · {B.venue_label(o[6:])}"),
+            "세부 분야 · 학회 (여러 개 선택 가능, 비우면 전체)", opts, key=f"rc_sub_{k}", format_func=B.sub_label,
             help="고른 세부 분야(CSrankings 분류)·학회의 논문만 합쳐 다시 세고 정렬합니다. 겹치는 논문은 한 번만 셉니다.")
         lbl, tbf = k, B.BF(start=y0, end=y1, next_tier=nt, fields=[k])
         if sel:
-            vs = set()
-            for o in sel:
-                by_, sk = o.split(":", 1)
-                vs |= {v for v, a_ in va.items() if a_ == sk} if by_ == "area" else {sk}
+            vs = set(B.sub_venues(sel, va))
             cnt, rcnt, krc = SUBS
             names = [B.AREA_NAMES.get(o[5:], o[5:]) if o.startswith("area:") else B.venue_label(o[6:]) for o in sel]
             lbl = " + ".join(names) if len(names) <= 3 else f"{names[0]} 외 {len(names) - 1}개"

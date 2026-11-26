@@ -180,14 +180,18 @@ with tab_search:
     age_rng = c2.slider("학문적 나이 (PhD 후 연수)", 0, 45, (0, 45))
     min_pubs = c3.number_input("최소 논문 수", 0, 200, 0, 1)
     window = c4.number_input("코호트 ±", 1, 5, 2)
-    t1, t2, t3 = st.columns([2, 4, 2])
+    t1, t2, t2b, t3 = st.columns([1.6, 3, 3, 1.8])
     sort = t1.selectbox("순위 기준", list(age.SORTS), format_func=age.SORTS.get, key="sort")
     known_only = t3.toggle("확인된 나이만 (ORCID·홈페이지·수동)", value=False)
     sf = t2.multiselect("분야 (이 검색에만 적용, 비우면 사이드바 필터)", list(B.FIELDS),
                         format_func=lambda k: f"{k} · {B.FIELDS[k][0]}", key="search_fields")
+    sub_opts, sub_va = B.sub_options(con(), sf, next_tier) if sf else ([], {})
+    ss = t2b.multiselect("세부 분야 · 학회 (여러 개 가능, 비우면 분야 전체)", sub_opts, format_func=B.sub_label,
+                         key="search_subs", disabled=not sf, placeholder="분야를 먼저 고르세요" if not sf else "전체",
+                         help="고른 세부 분야(CSrankings 분류)·학회의 논문만 셉니다. 겹치는 논문은 한 번만 셉니다.")
     G = metrics.Filter(**{**F.__dict__, "schools": sch or None})
     if sf:
-        G.areas, G.venues = None, B.field_venues(con(), sf, next_tier)
+        G.areas, G.venues = None, (B.sub_venues(ss, sub_va) if ss else B.field_venues(con(), sf, next_tier))
     rows, cols = age.candidates(
         con(), G,
         age_min=age_rng[0] if age_rng[0] > 0 else None,

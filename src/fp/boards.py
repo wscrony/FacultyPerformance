@@ -374,6 +374,31 @@ def field_venue_areas(con, field: str, next_tier: bool = False) -> dict[str, str
         [field, next_tier]).fetchall())
 
 
+def sub_options(con, fields: list[str], next_tier: bool = False) -> tuple[list[str], dict[str, str]]:
+    """Picker options for the sub-fields of the given fields: 'area:x' (when a field spans several areas) then
+    'venue:y', plus the venue → area map used to expand a pick into venues."""
+    opts, va_all = [], {}
+    for k in fields:
+        va = field_venue_areas(con, k, next_tier)
+        areas = sorted(set(va.values()))
+        opts += ([f"area:{a}" for a in areas] if len(areas) > 1 else []) + [f"venue:{v}" for v in va]
+        va_all.update(va)
+    return opts, va_all
+
+
+def sub_label(o: str) -> str:
+    return AREA_NAMES.get(o[5:], o[5:]) if o.startswith("area:") else f"학회 · {venue_label(o[6:])}"
+
+
+def sub_venues(picks: list[str], va: dict[str, str]) -> list[str]:
+    """Venues covered by the picked sub-fields / venues (a sub-field = all its venues)."""
+    vs = set()
+    for o in picks:
+        by, k = o.split(":", 1)
+        vs |= {v for v, a in va.items() if a == k} if by == "area" else {k}
+    return sorted(vs)
+
+
 def _sub_expr(by: str) -> str:
     return area_sql("v") if by == "area" else "v.venue"
 
