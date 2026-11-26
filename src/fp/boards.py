@@ -354,7 +354,8 @@ AREA_NAMES = {
 VENUE_LABEL = {"chiconf": "CHI", "oakland": "IEEE S&P", "usenixsec": "USENIX Security", "nips": "NeurIPS",
                "siggraph-asia": "SIGGRAPH Asia", "vis": "IEEE VIS", "vr": "IEEE VR", "sigcse": "SIGCSE", "ec": "EC",
                "naacl": "NAACL", "www": "WWW", "ubicomp": "UbiComp", "mobicom": "MobiCom", "mobisys": "MobiSys",
-               "sensys": "SenSys", "sigmetrics": "SIGMETRICS", "usenixatc": "USENIX ATC"}
+               "sensys": "SenSys", "sigmetrics": "SIGMETRICS", "usenixatc": "USENIX ATC", "compgeom": "SoCG",
+               "ieeepact": "PACT", "x_eurographics": "Eurographics", "x_fse": "FSE"}
 
 
 def venue_label(v: str) -> str:
