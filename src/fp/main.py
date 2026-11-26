@@ -65,6 +65,7 @@ pg = st.navigation({
     "탐색": [
         st.Page("app.py", title="검색 · 비교", icon=":material/search:"),
         st.Page("views/recruit.py", title="교수 초빙 후보", icon=":material/person_search:", url_path="recruit"),
+        st.Page("views/visibility.py", title="Visibility 점수", icon=":material/military_tech:", url_path="visibility"),
     ],
     "설정": [st.Page("views/venues.py", title="Top 학회 설정", icon=":material/tune:", url_path="venues")],
 })
