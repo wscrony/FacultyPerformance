@@ -320,7 +320,9 @@ FIELDS = {
 }
 AREA_FIELD = {a: k for k, (_, _, areas) in FIELDS.items() for a in areas}
 # venue-level exceptions: CSrankings files KDD under 'ML'; here it is data mining
-VENUE_FIELD = {"kdd": "DM", "cikm": "DM"}  # user decisions: KDD, CIKM are Data Mining & IR
+VENUE_FIELD = {"kdd": "DM", "cikm": "DM", "infocom": "NS"}  # user decisions: KDD, CIKM are Data Mining & IR;
+# INFOCOM (CSrankings 'ML' next tier) is Network Systems
+VENUE_AREA = {"kdd": "datamining", "cikm": "datamining", "infocom": "comm"}  # sub-field of those venues
 
 
 def field_sql(v: str = "v") -> str:
@@ -356,8 +358,8 @@ def venue_label(v: str) -> str:
 
 
 def area_sql(v: str = "v") -> str:
-    """Sub-field of a paper: its CSrankings area; KDD and CIKM (moved to DM) get their own 'datamining' area."""
-    exc = " ".join(f"WHEN {v}.venue = '{x}' THEN 'datamining'" for x in VENUE_FIELD)
+    """Sub-field of a paper: its CSrankings area, except venues moved to another field (VENUE_AREA)."""
+    exc = " ".join(f"WHEN {v}.venue = '{x}' THEN '{a}'" for x, a in VENUE_AREA.items())
     return f"CASE {exc} ELSE {v}.area END"
 
 
