@@ -319,10 +319,14 @@ FIELDS = {
     "기타": ("Robotics, Comp. Bio, ECom, CSEd", "Other", ["robotics", "bio", "ecom", "csed"]),
 }
 AREA_FIELD = {a: k for k, (_, _, areas) in FIELDS.items() for a in areas}
-# venue-level exceptions: CSrankings files KDD under 'ML'; here it is data mining
-VENUE_FIELD = {"kdd": "DM", "cikm": "DM", "infocom": "NS"}  # user decisions: KDD, CIKM are Data Mining & IR;
-# INFOCOM (CSrankings 'ML' next tier) is Network Systems
-VENUE_AREA = {"kdd": "datamining", "cikm": "datamining", "infocom": "comm"}  # sub-field of those venues
+# venue-level moves (user decisions): KDD, CIKM are Data Mining & IR; venues CSrankings files under 'ML' (next tier)
+# that belong elsewhere — networking → NS, distributed/cloud systems → CS, bioinformatics → 기타 (Comp. Bio)
+VENUE_AREA = {"kdd": "datamining", "cikm": "datamining",
+              "infocom": "comm", "noms": "comm", "im": "comm", "nossdav": "comm",
+              "mobihoc": "mobile", "mass": "mobile", "wiopt": "mobile",
+              "icdcs": "ops", "ieeecloud": "ops",
+              "bcb": "bio", "bibm": "bio", "psb": "bio"}
+VENUE_FIELD = {x: ("DM" if a == "datamining" else AREA_FIELD[a]) for x, a in VENUE_AREA.items()}
 
 
 def field_sql(v: str = "v") -> str:
