@@ -228,7 +228,9 @@ SORTS = {
     "pctl": "같은 나이대 국내 교수 대비 백분위",
 }
 
-SORT_EXPR = {"pubs": "s.pubs", "cites": "wc.cites", "pctl": "cohort_pctl"}
+# pctl is a subquery column: DuckDB can't reuse that alias in the same SELECT, so it is ordered on in the outer query
+SORT_EXPR = {"pubs": "s.pubs", "cites": "wc.cites", "pctl": "NULL::DOUBLE"}
+OUTER_SORT = {"pctl": "cohort_pctl"}
 
 SCOPES = {
     "kr": "KR faculty",
@@ -311,7 +313,7 @@ def candidates(
         JOIN person_age a ON a.person = k.person
         WHERE a.academic_age IS NOT NULL
     )
-    SELECT * EXCLUDE (sort_key), row_number() OVER (ORDER BY sort_key DESC NULLS LAST, pubs DESC, name) AS rank
+    SELECT * EXCLUDE (sort_key), row_number() OVER (ORDER BY {OUTER_SORT.get(sort, "sort_key")} DESC NULLS LAST, pubs DESC, name) AS rank
     FROM (
     SELECT s.name, coalesce(r.affiliation, '-') AS institution, r.role, r.affil_year,
            a.academic_age, a.phd_year, a.age_source, a.birth_year, a.birth_source,
