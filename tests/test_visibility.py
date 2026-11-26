@@ -82,3 +82,31 @@ def test_counts_dedupe_and_caps(monkeypatch):
     # GC: SIGMOD 2020, VLDB 2020, ICDE 2021, ICDE 2022 = 4 → capped at 3; steering: VLDB twice = 1 conference
     assert (a.gc, a.sc, a.acm) == (4, 1, 1)
     assert a.score == min(100, 20 + 20 + 10 + 30 + 10 + 5)
+
+
+def test_manual_alias_merges_split_dblp_names(monkeypatch):
+    from fp.ingest import dblp
+
+    monkeypatch.setattr(dblp, "MANUAL_ALIASES", {"Myoung-Ho Kim": "Myoung Ho Kim"})
+    con = duckdb.connect()
+    con.execute("CREATE TABLE dblp_paper (key VARCHAR, venue VARCHAR, year INT, n_authors INT)")
+    con.execute("CREATE TABLE dblp_authorship (key VARCHAR, pos INT, name VARCHAR, raw_name VARCHAR, orcid VARCHAR)")
+    con.execute("CREATE TABLE alias (alias VARCHAR, name VARCHAR)")
+    con.execute("INSERT INTO dblp_paper VALUES ('a', 'vldb', 2006, 1), ('b', 'cikm', 2021, 1)")
+    con.execute("INSERT INTO dblp_authorship VALUES ('a', 1, 'Myoung-Ho Kim', 'Myoung-Ho Kim', NULL), "
+                "('b', 1, 'Myoung Ho Kim', 'Myoung Ho Kim', NULL)")
+    assert dblp.apply_manual_aliases(con) == {"renamed_authorships": 1}
+    assert con.execute("SELECT name, sum(count) FROM author_pub GROUP BY 1").fetchall() == [("Myoung Ho Kim", 2)]
+    assert con.execute("SELECT name FROM alias WHERE alias = 'Myoung-Ho Kim'").fetchone() == ("Myoung Ho Kim",)
+
+
+def test_remove_rules():
+    from fp.ingest.visibility import _removed
+
+    r = {"person": "A", "kind": "pc_chair", "venue": "icde", "venue_raw": "ICDE", "year": 2006, "evidence_url": "u1"}
+    assert _removed(r, [{"person": "A"}])  # whole person
+    assert _removed(r, [{"person": "A", "evidence_url": "u1"}])
+    assert not _removed(r, [{"person": "A", "evidence_url": "u2"}])
+    assert not _removed(r, [{"person": "B"}])
+    assert _removed(r, [{"person": "A", "kind": "pc_chair", "venue": "ICDE", "year": 2006}])
+    assert not _removed(r, [{"person": "A", "kind": "pc_chair", "year": 2007}])

@@ -359,6 +359,34 @@ def add_manual(person: str, kind: str, venue: str | None = None, year: int | Non
     return rec
 
 
+def remove_manual(person: str, evidence_url: str | None = None, kind: str | None = None, venue: str | None = None,
+                  year: int | None = None, reason: str | None = None, path: Path = MANUAL) -> dict:
+    """Hand-entered removal: drop this person's records matching every given field (all of them if none given),
+    from the web search and from earlier hand entries alike. Kept across re-searches."""
+    rec = {"person": person, "remove": True, "evidence_url": evidence_url, "kind": kind, "venue": venue,
+           "year": year, "reason": reason, "added": str(date.today())}
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "a") as fh:
+        fh.write(json.dumps(rec, ensure_ascii=False) + "\n")
+    return rec
+
+
+def _removed(r: dict, rules: list[dict]) -> bool:
+    for m in rules:
+        if m["person"] != r["person"]:
+            continue
+        if m.get("evidence_url") and (r.get("evidence_url") or "") != m["evidence_url"]:
+            continue
+        if m.get("kind") and r["kind"] != m["kind"]:
+            continue
+        if m.get("venue") and r.get("venue") != m["venue"] and r.get("venue_raw") != m["venue"]:
+            continue
+        if m.get("year") and r.get("year") != m["year"]:
+            continue
+        return True
+    return False
+
+
 def load_manual(path: Path = MANUAL) -> list[dict]:
     if not path.exists():
         return []
@@ -377,7 +405,8 @@ def store(con, path: Path = CACHE) -> dict:
             rows.append({"person": p, "kind": it["kind"], "venue_raw": None if fellow else it.get("venue"),
                          "venue": None if fellow else venue_key(it.get("venue"), aliases), "year": it.get("year"),
                          "evidence_url": it.get("evidence_url"), "source": r.get("source")})
-    for m in load_manual():
+    manual = load_manual()
+    for m in (m for m in manual if not m.get("remove")):
         fellow = m["kind"] in ("acm_fellow", "ieee_fellow")
         rows.append({"person": m["person"], "kind": m["kind"], "venue_raw": None if fellow else m.get("venue"),
                      "venue": None if fellow else venue_key(m.get("venue"), aliases), "year": m.get("year"),
@@ -387,6 +416,10 @@ def store(con, path: Path = CACHE) -> dict:
         rows += best_paper_items(con, set(ppl))
     if ACM_FILE.exists():
         rows += acm_items(ppl)
+    rules = [m for m in manual if m.get("remove")]
+    n0 = len(rows)
+    rows = [r for r in rows if not _removed(r, rules)]
+    removed = n0 - len(rows)
     con.execute("DELETE FROM pii.vis_item")
     con.executemany("INSERT INTO pii.vis_item VALUES (?, ?, ?, ?, ?, ?, ?)",
                     [(r["person"], r["kind"], r["venue_raw"], r["venue"], r["year"], r["evidence_url"], r["source"])
@@ -394,7 +427,7 @@ def store(con, path: Path = CACHE) -> dict:
     con.execute("DELETE FROM pii.vis_checked")
     con.executemany("INSERT OR REPLACE INTO pii.vis_checked VALUES (?, ?, ?)", checked)
     unmapped = sum(1 for r in rows if r["venue"] is None and r["kind"] not in ("acm_fellow", "ieee_fellow"))
-    return {"items": len(rows), "people_checked": len(checked), "unmapped_venue": unmapped}
+    return {"items": len(rows), "people_checked": len(checked), "unmapped_venue": unmapped, "removed": removed}
 
 
 def update(con, model: str = "sonnet", limit: int | None = None, workers: int = 6, progress=None) -> dict:
